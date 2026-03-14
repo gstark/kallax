@@ -2,7 +2,7 @@
 // Front: 100mm x 100mm, Depth: 250mm
 // Open on top (along the 250mm length)
 
-wall = 2; // wall thickness
+wall = 0.84; // wall thickness (2 perimeters x 0.42mm line width)
 
 width = 100;
 height = 100;
@@ -15,8 +15,8 @@ cutout_depth = 15;        // how far down from the top
 
 // Lattice parameters
 lattice_bar = 2;          // lattice bar width
-lattice_spacing = 5;      // center-to-center spacing of lattice bars
-lattice_margin = 10;      // solid border around lattice area
+lattice_spacing = 8;      // center-to-center spacing of lattice bars
+lattice_margin = 6;      // solid border around lattice area
 lattice_cell = lattice_spacing - lattice_bar; // opening size
 
 // Generic lattice cutout: cuts a grid of holes through a wall
