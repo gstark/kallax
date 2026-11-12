@@ -1,7 +1,7 @@
 // Small boxes with friction-fit lids that tile inside the Kallas Box.
 //
-// The parent (kallas-box.scad) is 100 x 250 x 100 outside with 2 mm walls,
-// so the interior is 96 wide x 246 deep x 98 tall.
+// The parent (kallas-box.scad) has a 96 wide x 246 deep interior with 3 mm
+// walls and a 1.12 mm floor. The interior is about 98.9 tall; 98 is used here.
 //
 // The interior is a grid of 4 x 10 cells (24 x 24.6 mm). A box takes
 // nx x ny cells. Box heights include the lid, so heights of 24 + 24 + 48
@@ -19,7 +19,8 @@ $fs = $preview ? 1  : 0.25;
 in_w = 96;               // interior width  (x)
 in_d = 246;              // interior depth  (y)
 in_h = 98;               // interior height (z), floor to rim
-in_origin = [2, 2, 2];   // interior corner in kallas-box coordinates
+parent_wall = 3;         // kallas-box.scad `wall`
+in_origin = [parent_wall, parent_wall, 1.12];   // interior corner in kallas-box coordinates
 
 px  = in_w / 4;          // cell pitch x = 24
 py  = in_d / 10;         // cell pitch y = 24.6
@@ -168,7 +169,7 @@ p = pget(preset);
 if (part == "layout") {
     // Ghost of the parent, so the preview does not need kallas-box.stl
     %difference() {
-        cuboid([in_w + 4, in_d + 4, in_h + 2], rounding=6, edges="Z", anchor=BOT+LEFT+FWD);
+        cuboid([in_w + 2 * parent_wall, in_d + 2 * parent_wall, in_h + 2], rounding=4 + parent_wall, edges="Z", anchor=BOT+LEFT+FWD);
         translate(in_origin)
             cuboid([in_w, in_d, in_h + 1], rounding=4, edges="Z", anchor=BOT+LEFT+FWD);
     }

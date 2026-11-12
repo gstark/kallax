@@ -1,16 +1,26 @@
 // Kallas Box - open top box
-// Front: 100mm x 100mm, Depth: 250mm
-// Open on top (along the 250mm length)
+// Interior: 96mm x 246mm. The outside grows with the wall thickness
+// (102mm x 252mm x 100mm with 3mm walls).
+// Open on top (along the long side)
 
 include <polyround.scad>
 
 $fn = 48;
 
-wall = 2; // wall thickness
+// Sandwich wall: the slicer prints one perimeter on each face with sparse
+// infill between them (wall_loops = 1, gyroid). A thicker hollow wall is
+// stiffer than a thinner solid wall that uses the same plastic.
+wall = 3;          // wall thickness
+floor_thick = 1.12; // floor thickness, 4 layers at 0.28 mm; the shelf supports the floor
 
-width = 100;
+// small-boxes.scad and organizer-bins.scad are sized to this interior
+interior_width = 96;
+interior_depth = 246;
+interior_corner_r = 4; // radius of the inside vertical corners
+
+width = interior_width + 2 * wall;
 height = 100;
-depth = 250;
+depth = interior_depth + 2 * wall;
 
 // Finger cutout parameters (on front 100x100 wall)
 cutout_top_width = 60;    // width at the top edge
@@ -20,7 +30,7 @@ cutout_corner_r = 5;      // rounding of the finger scoop corners
 cutout_lip_r = -wall / 2; // rounding of the opening lip (negative = flares outward)
 
 // Rounding parameters
-round_vert = 6;   // radius of the four vertical edges
+round_vert = interior_corner_r + wall; // radius of the four vertical edges
 round_bottom = 3; // radius of the bottom edges
 round_top = 1;    // radius of the top rim (outer edge)
 round_fn = 16;    // arc subdivisions for the fillets
@@ -34,7 +44,7 @@ outer = [
 ];
 
 // Inner footprint, inset by wall, concentric corner radius
-inner_r = max(round_vert - wall, 0.5);
+inner_r = interior_corner_r;
 inner = [
     [wall,         wall,         inner_r],
     [width - wall, wall,         inner_r],
@@ -48,7 +58,7 @@ difference() {
 
     // Hollow interior (open top): cavity extends above the top to open it,
     // with a rounded fillet where the floor meets the walls
-    translate([0, 0, wall])
+    translate([0, 0, floor_thick])
         polyRoundExtrude(inner, height, r1 = 0, r2 = round_bottom, fn = round_fn);
 
     // Finger cutout - rounded trapezoid on front wall (y=0 face)
