@@ -17,6 +17,7 @@ height = 24;       // total height with the lid. 24, 32, 48, and 96 stack to fil
 cols   = 3;        // compartments across the width
 rows   = 4;        // compartments along the length
 pull   = true;     // finger pocket in the front end
+label_guides = true;   // guides for a slide-in label on the back wall of each compartment
 part   = "pair";   // pair | box | lid
 
 /* ---------------------------------------------------------------------------
@@ -36,6 +37,15 @@ pull_u   = 3;      // extra depth below the lip
 pull_lip = 6;      // lip height below the rim
 pull_r   = 3;      // pocket corner radius
 pull_w0  = 24;     // pocket width when it cannot line up with one column
+
+// Label guides. Two L-shaped rails on the back wall of a compartment hold a
+// label from labels.scad. The label slides down from the top.
+label_clr  = 0.3;                    // slot clearance, in width and in thickness
+lip_t      = 0.8;                    // guide lip thickness
+guide_side = 2.4;                    // guide width beside the slot
+slot_w     = label_w + label_clr;
+slot_t     = label_t + label_clr;
+guide_p    = slot_t + lip_t;         // how far a guide stands out from the wall
 
 len_frac = length == "full" ? 1 : length == "half" ? 1/2 : length == "quarter" ? 1/4
          : assert(false, "length must be full, half, or quarter");
@@ -60,9 +70,16 @@ cut    = pull ? pull_d + pull_u : 0;   // how far the pocket goes into the tray
 // A front compartment that is too short joins the compartment behind it
 merge  = cd - cut < min_cell;
 
+// Label bottom, above the compartment floor. The label top stays below the lid plug.
+label_z    = bh - floor_t - groove_h - 0.5 - label_h;
+// Narrow or shallow compartments get no guides
+has_guides = label_guides && cw >= slot_w + 2.4 && label_z >= 1;
+
 function cell_x0(ix) = -w/2 + wall + ix * (cw + div_t);
 // True if the column is behind the pocket or its walls
 function hit(ix) = pull && cell_x0(ix) < pw/2 + wall - 0.01 && cell_x0(ix) + cw > -pw/2 - wall + 0.01;
+// False for a front compartment that joined the compartment behind it
+function has_cell(ix, iy) = !(hit(ix) && merge && iy == 0);
 
 // Footprint, with the finger pocket at the front (-y) end
 outline = !pull ? rect([w, d], rounding=r_vert) : round_corners(
@@ -72,6 +89,9 @@ outline = !pull ? rect([w, d], rounding=r_vert) : round_corners(
 
 echo(str("Tray ", w, " x ", d, " x ", height, " mm, ", cols, " x ", rows, " compartments of ",
          round(cw * 10) / 10, " x ", round(cd * 10) / 10, " x ", round((bh - floor_t) * 10) / 10, " mm"));
+if (label_guides)
+    echo(has_guides ? str("Label guides for ", label_w, " x ", label_h, " mm labels")
+                    : "No label guides: the compartments are too narrow or too shallow");
 
 /* ---------------------------------------------------------------------------
    One compartment cavity
@@ -94,6 +114,37 @@ module cell(ix, iy) {
 }
 
 /* ---------------------------------------------------------------------------
+   Label guides
+   Local coordinates: back wall face at y = 0, compartment toward -y,
+   compartment floor at z = 0.
+--------------------------------------------------------------------------- */
+module at_back_wall(ix, iy)
+    translate([cell_x0(ix) + cw/2, -d/2 + wall + iy * (cd + div_t) + cd, floor_t]) children();
+
+module guide() {
+    s   = slot_w / 2;
+    top = label_z + label_h;
+    // Rail section: x across the wall, y out from the wall
+    rail = round_corners(
+        [[s, -0.2], [s + guide_side, -0.2], [s + guide_side, guide_p],
+         [s - label_edge, guide_p], [s - label_edge, slot_t], [s, slot_t]],
+        radius=[0, 0, 0, lip_t/2 - 0.01, lip_t/2 - 0.01, 0]);
+    down(0.2) intersection() {
+        union() {
+            // Block under the label: the stop. It goes down to the floor, so nothing
+            // overhangs. The sloped top edge keeps small parts off it.
+            back(0.2)
+                cuboid([slot_w + 0.2, guide_p + 0.2, label_z + 0.2], chamfer=lip_t, edges=TOP+FRONT, anchor=BOT+BACK);
+            linear_extrude(top + 0.2) xflip_copy() yflip() polygon(rail);
+        }
+        // Rounded envelope: no sharp outside edges for a finger to hit
+        cuboid([slot_w + 2*guide_side, 2*guide_p, top + 0.2], rounding=guide_p - 0.01, except=BOTTOM, anchor=BOT);
+        // Stay inside this compartment and its walls
+        cuboid([cw + div_t, 2*guide_p + 1, top + 1], anchor=BOT);
+    }
+}
+
+/* ---------------------------------------------------------------------------
    Tray body (centered in x/y, sits on z = 0)
 --------------------------------------------------------------------------- */
 module tray() {
@@ -102,8 +153,14 @@ module tray() {
         offset_sweep(outline, height=bh, bottom=os_chamfer(width=c_bot), top=os_chamfer(width=c_rim));
 
         for (ix = [0 : cols - 1], iy = [0 : rows - 1])
-            if (!(hit(ix) && merge && iy == 0))
+            if (has_cell(ix, iy))
                 cell(ix, iy);
+
+        // Label slots. In a narrow compartment the slot cuts into the corner fillets.
+        if (has_guides)
+            for (ix = [0 : cols - 1], iy = [0 : rows - 1])
+                if (has_cell(ix, iy))
+                    at_back_wall(ix, iy) up(label_z) cuboid([slot_w, slot_t, bh], anchor=BOT+BACK);
 
         // Channel inside the rim for the lid plug. It also notches the divider ends.
         up(bh - groove_h)
@@ -126,6 +183,10 @@ module tray() {
         translate([0, d/2 - wall/2, bh + notch_r - notch_h])
             cyl(r=notch_r, h=wall + 2, orient=FWD);
     }
+    if (has_guides)
+        for (ix = [0 : cols - 1], iy = [0 : rows - 1])
+            if (has_cell(ix, iy))
+                at_back_wall(ix, iy) guide();
 }
 
 /* ---------------------------------------------------------------------------

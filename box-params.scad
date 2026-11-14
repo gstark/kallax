@@ -46,6 +46,14 @@ r_floor = 1.5;   // inside floor fillet, makes small parts easy to scoop
 notch_r = 5;     // fingernail notch in the rim
 notch_h = 2;     // notch depth below the rim
 
+/* ---------------------------------------------------------------------------
+   Slide-in label (guides in parts-tray.scad, labels in labels.scad)
+--------------------------------------------------------------------------- */
+label_w    = 18;   // label width
+label_h    = 10;   // label height
+label_t    = 1.2;  // label plate thickness
+label_edge = 1.0;  // width of each side edge that a guide lip covers
+
 function box_w(nx) = nx * px - gap;
 function box_d(ny) = ny * py - gap;
 r_in = r_vert - wall;

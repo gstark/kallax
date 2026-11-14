@@ -13,6 +13,9 @@ The project has one plate with the tray body and the lid as two objects.
   just tray
   just tray --length full --rows 6
   just tray --length quarter --width half --height 48 --cols 1 --rows 2
+
+Compartments that are wide and deep enough get guides for a slide-in label.
+Make the labels with `just labels`.
 """
 
 import argparse
@@ -69,6 +72,7 @@ def main():
     ap.add_argument("--cols", type=int, help="compartments across the width (default: 3, or 2 for half width)")
     ap.add_argument("--rows", type=int, help="compartments along the length (default: 8, 4, or 2)")
     ap.add_argument("--no-pull", action="store_true", help="leave out the finger pocket")
+    ap.add_argument("--no-labels", action="store_true", help="leave out the label guides")
     ap.add_argument("-o", "--output", type=Path, help="output file (default: 3mf/tray-<options>.3mf)")
     args = ap.parse_args()
 
@@ -77,9 +81,11 @@ def main():
     defines = {
         "length": f'"{args.length}"', "width": f'"{args.width}"', "height": f"{args.height:g}",
         "cols": cols, "rows": rows, "pull": "false" if args.no_pull else "true",
+        "label_guides": "false" if args.no_labels else "true",
     }
-    name = f"tray-{args.length}-{args.width}-{args.height:g}mm-{cols}x{rows}"
-    out = args.output or OUT / f"{name}{'-nopull' if args.no_pull else ''}.3mf"
+    name = (f"tray-{args.length}-{args.width}-{args.height:g}mm-{cols}x{rows}"
+            f"{'-nopull' if args.no_pull else ''}{'-nolabels' if args.no_labels else ''}")
+    out = args.output or OUT / f"{name}.3mf"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as tmp:
