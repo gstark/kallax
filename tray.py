@@ -13,8 +13,9 @@
   just tray -y --width half --cols 2 --rows 5 --merge 0,1,1,2    # no editor
 
 In the editor, set the size and the grid, then merge grid units into larger
-compartments on the top view. Type a label text for a compartment to get a
-second plate with the printed labels.
+compartments on the top view. Type a label text for a compartment. The text
+goes on a map inside the lid, and on a slide-in label on a second plate if the
+compartment has label guides. A lid title goes on the outside of the lid.
 """
 
 import argparse
@@ -158,8 +159,8 @@ class GridEditor(Widget, can_focus=True):
         if self.has_focus:
             fill(*self.cursor, 1, 1, f"{TEXT} {CURSOR}")
         for k in info.comps:   # the label is on the back wall
-            if k.guided and k.rows * (high + 1) - 1 >= 2:
-                label = self.spec.labels.get((k.col, k.row))
+            label = self.spec.labels.get((k.col, k.row))
+            if k.usable and (label or k.guided) and k.rows * (high + 1) - 1 >= 2:
                 write(k.col, k.row, k.cols, k.rows, 0, label or "━━━", LABEL if label else None)
 
         out = Text(no_wrap=True)
@@ -309,6 +310,8 @@ class TrayApp(App):
                     yield Input(str(spec.rows), type="integer", id="rows")
                 yield Checkbox("Finger pocket in the front end", spec.pull, id="pull", classes="field")
                 yield Checkbox("Label guides", spec.guides, id="guides")
+                yield Label("Lid title, on the outside", classes="field")
+                yield Input(spec.title, max_length=24, id="title")
                 yield Label("File name", classes="field")
                 yield Input(spec.name, id="name")
                 yield Button("Generate 3MF", variant="primary", id="generate")
@@ -353,8 +356,8 @@ class TrayApp(App):
     @on(Input.Changed)
     def input_changed(self, event):
         field, text = event.input.id, event.value.strip()
-        if field == "name":
-            self.spec.name = text
+        if field in ("name", "title"):
+            setattr(self.spec, field, text)
             return
         if field == "label":
             editor = self.query_one(GridEditor)
@@ -396,7 +399,7 @@ class TrayApp(App):
     def label_wanted(self):
         field = self.query_one("#label", Input)
         if field.disabled:
-            self.notify("This compartment has no label guides.")
+            self.notify("This compartment is solid.")
         else:
             field.focus()
 
@@ -442,8 +445,8 @@ class TrayApp(App):
             elif here:
                 text += ("[b]Compartment[/b]  [yellow]solid: too short behind the finger pocket. "
                          "Merge it with the unit behind it, or turn off the pocket.[/]")
-            count = len(info.labels(self.spec))
-            text += (f"\n[b]Labels[/b]       {count} on plate 2" if count else
+            count, on_lid = len(info.labels(self.spec)), info.lid_labels(self.spec)
+            text += (f"\n[b]Labels[/b]       {on_lid} on the lid map, {count} on plate 2" if on_lid else
                      "\n[dim]━━━ label guides on the back wall. Press enter to type a label.[/dim]")
         self.query_one("#info", Static).update(text)
 
@@ -453,8 +456,9 @@ class TrayApp(App):
         field = self.query_one("#label", Input)
         with field.prevent(Input.Changed):
             field.value = self.spec.labels.get((here.col, here.row), "") if here else ""
-        field.disabled = not (here and here.guided)
-        field.placeholder = "about 6 characters print well" if here and here.guided else "no label guides here"
+        field.disabled = not (here and here.usable)
+        field.placeholder = ("solid compartment" if not (here and here.usable) else
+                             "about 6 characters print well" if here.guided else "lid map only: no label guides")
 
     # -- export -------------------------------------------------------------
 
@@ -512,8 +516,10 @@ def main():
     ap.add_argument("--guides", action=argparse.BooleanOptionalAction, default=True,
                     help="label guides on the back wall of each compartment (default: on)")
     ap.add_argument("--label", type=label_arg, action="append", default=[], metavar="COL,ROW=TEXT",
-                    help="label text for the compartment whose front left unit is COL,ROW. The labels "
-                         "go on plate 2. You can use this option more than once")
+                    help="label text for the compartment whose front left unit is COL,ROW. The text goes "
+                         "on the lid map, and on a slide-in label on plate 2 if the compartment has "
+                         "label guides. You can use this option more than once")
+    ap.add_argument("--title", default="", help="text on the outside of the lid")
     ap.add_argument("--name", default="", help="file name without .3mf (default: made from the options)")
     ap.add_argument("-y", "--yes", action="store_true", help="write the file now, with no editor")
     ap.add_argument("-o", "--output", help="output file (default: 3mf/<name>.3mf)")
@@ -522,7 +528,7 @@ def main():
     spec = Spec(length=args.length, width=args.width, height=args.height,
                 cols=args.cols or COLS[args.width], rows=args.rows or ROWS[args.length],
                 merges=args.merge, pull=args.pull, guides=args.guides, labels=dict(args.label),
-                name=args.name)
+                title=args.title, name=args.name)
     if args.yes or not sys.stdin.isatty():
         try:
             export(spec, args.output)

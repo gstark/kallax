@@ -53,6 +53,7 @@ label_w    = 18;   // label width
 label_h    = 10;   // label height
 label_t    = 1.2;  // label plate thickness
 label_edge = 1.0;  // width of each side edge that a guide lip covers
+label_font = "Liberation Sans:style=Bold";   // labels and the lid text
 
 function box_w(nx) = nx * px - gap;
 function box_d(ny) = ny * py - gap;

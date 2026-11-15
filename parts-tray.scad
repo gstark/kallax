@@ -4,6 +4,11 @@
 // The dividers go up to the rim. The lid rests on them and closes each
 // compartment, so small parts stay in place when the tray tilts.
 //
+// The lid can have inlaid text in a second filament. The inside face gets a
+// map: an outline of each compartment and its label text. The outside face
+// gets a title. The text fit uses textmetrics(). In the OpenSCAD application,
+// turn on the "textmetrics" feature in Preferences > Features.
+//
 // Run `just tray` to edit a tray and make a Bambu Studio project from this file.
 
 include <box-params.scad>
@@ -21,7 +26,11 @@ rows   = 4;        // grid units along the length
 merges = [];
 pull   = true;     // finger pocket in the front end
 label_guides = true;   // guides for a slide-in label on the back wall of each compartment
-part   = "pair";   // pair | box | lid
+// Lid text. A label is [col, row, text] for the compartment whose front left
+// unit is col, row. With labels, the inside of the lid gets the map.
+lid_labels = [];
+lid_title  = "";   // text on the outside of the lid
+part   = "pair";   // pair | box | lid | lid_text
 
 /* ---------------------------------------------------------------------------
    Tray parameters
@@ -70,6 +79,14 @@ assert(rows >= 1 && cd >= min_cell, "too many rows for this length");
 snap_w = cw + 2*div_t - 2*wall;
 pw     = !pull ? 0 : (cols % 2 == 1 && snap_w >= 20 && snap_w <= 32) ? snap_w : pull_w0;
 cut    = pull ? pull_d + pull_u : 0;   // how far the pocket goes into the tray
+
+// Lid text. The text is inlaid flush, so the lid still rests flat on the dividers.
+inlay_t    = 0.4;   // inlay depth, 2 layers at 0.2 mm
+map_line   = 0.8;   // compartment outline width, 2 lines of a 0.4 mm nozzle
+map_inset  = fit + skirt_t + 0.7;   // outline inset from the compartment walls: clear of the lid plug
+map_size   = 5;     // largest map text size
+title_size = 10;    // largest title text size
+title_edge = 6;     // title clearance from the lid edges
 
 // Label bottom, above the compartment floor. The label top stays below the lid plug.
 label_z = bh - floor_t - groove_h - 0.5 - label_h;
@@ -217,10 +234,63 @@ module tray() {
 }
 
 /* ---------------------------------------------------------------------------
+   Lid text, in 2D. Lid print coordinates: the inside face is up.
+--------------------------------------------------------------------------- */
+// Text that fits in a box of max_w x max_h. Long text gets smaller.
+module fit_text(txt, size, max_w, max_h) {
+    m = textmetrics(txt, size=size, font=label_font).size;
+    text(txt, size=size * min(1, max_w / m.x, max_h / m.y), font=label_font, halign="center", valign="center");
+}
+
+function comp_at(col, row) = [for (c = comps) if (c[0] == col && c[1] == row) c][0];
+function has_label(lb) = let(c = comp_at(lb[0], lb[1])) !is_undef(c) && usable(c) && lb[2] != "";
+lid_map_on = len([for (lb = lid_labels) if (has_label(lb)) 1]) > 0;
+
+// The inside of the lid, seen from the top in print orientation, has the same
+// layout as the tray seen from the top. Open the lid like a book page, to the
+// left or to the right, and the map lies beside the tray in the same order.
+module lid_map() {
+    for (c = comps)
+        if (usable(c)) {
+            wd = comp_w(c) - 2*map_inset;
+            l  = comp_l(c) - 2*map_inset;
+            r  = max(0, min(r_cell, comp_w(c)/2 - 0.1, comp_l(c)/2 - 0.1) - map_inset);
+            translate([comp_x0(c) + comp_w(c)/2, comp_y0(c) + comp_l(c)/2])
+                difference() {
+                    rect([wd, l], rounding=r);
+                    rect([wd - 2*map_line, l - 2*map_line], rounding=max(0, r - map_line));
+                }
+        }
+    for (lb = lid_labels) {
+        c = comp_at(lb[0], lb[1]);
+        if (has_label(lb))
+            translate([comp_x0(c) + comp_w(c)/2, comp_y0(c) + comp_l(c)/2])
+                fit_text(lb[2], map_size, comp_w(c) - 2*(map_inset + map_line + 1.5),
+                         comp_l(c) - 2*(map_inset + map_line + 1.5));
+    }
+}
+
+// The outside of the lid faces the bed. On the tray, the lid is turned over
+// about the y axis, so the text is mirrored in x here.
+module lid_title_2d()
+    xflip() fit_text(lid_title, title_size, w - 2*title_edge, d / 3);
+
+// The inlay solids. They also cut the pockets in the lid plate.
+module lid_inlays(extra=0) {
+    if (lid_map_on)
+        up(lid_t - inlay_t) linear_extrude(inlay_t + extra) lid_map();
+    if (lid_title != "")
+        down(extra) linear_extrude(inlay_t + extra) lid_title_2d();
+}
+
+/* ---------------------------------------------------------------------------
    Lid, modeled in print orientation: plate on the bed, plug pointing up
 --------------------------------------------------------------------------- */
 module tray_lid() {
-    offset_sweep(outline, height=lid_t, bottom=os_chamfer(width=c_lid), top=os_chamfer(width=c_rim));
+    difference() {
+        offset_sweep(outline, height=lid_t, bottom=os_chamfer(width=c_lid), top=os_chamfer(width=c_rim));
+        lid_inlays(extra=0.01);
+    }
     up(lid_t - 0.01)
         linear_extrude(skirt_h)
             difference() {
@@ -231,9 +301,14 @@ module tray_lid() {
 
 if (part == "pair") {
     tray();
-    right(w + 8) tray_lid();
+    right(w + 8) {
+        tray_lid();
+        color("Black") lid_inlays();
+    }
 } else if (part == "box") {
     tray();
 } else if (part == "lid") {
     tray_lid();
+} else if (part == "lid_text") {
+    lid_inlays();
 }

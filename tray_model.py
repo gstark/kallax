@@ -37,6 +37,7 @@ class Spec:
     pull: bool = True
     guides: bool = True
     labels: dict = field(default_factory=dict)   # (col, row) of a compartment's front left unit -> text
+    title: str = ""   # text on the outside of the lid
     name: str = ""
 
     def defines(self):
@@ -44,6 +45,8 @@ class Spec:
             "length": f'"{self.length}"', "width": f'"{self.width}"', "height": f"{self.height:g}",
             "cols": self.cols, "rows": self.rows, "merges": json.dumps([list(m) for m in self.merges]),
             "pull": str(self.pull).lower(), "label_guides": str(self.guides).lower(),
+            "lid_labels": json.dumps([[c, r, text] for (c, r), text in sorted(self.labels.items())]),
+            "lid_title": json.dumps(self.title),
         }
 
     def auto_name(self):
@@ -58,7 +61,8 @@ class Spec:
         return (f"just tray -y --length {self.length} --width {self.width} --height {self.height:g} "
                 f"--cols {self.cols} --rows {self.rows}{merges} "
                 f"{'--pull' if self.pull else '--no-pull'} {'--guides' if self.guides else '--no-guides'}"
-                f"{labels}{f' --name {shlex.quote(self.name)}' if self.name else ''}")
+                f"{labels}{f' --title {shlex.quote(self.title)}' if self.title else ''}"
+                f"{f' --name {shlex.quote(self.name)}' if self.name else ''}")
 
 
 @dataclass
@@ -86,9 +90,13 @@ class Info:
     notes: list
 
     def labels(self, spec):
-        """The label texts to print, in reading order on the top view: back row first."""
+        """The slide-in label texts to print, in reading order on the top view: back row first."""
         comps = sorted(self.comps, key=lambda k: (-k.row, k.col))
         return [spec.labels[k.col, k.row] for k in comps if k.guided and spec.labels.get((k.col, k.row))]
+
+    def lid_labels(self, spec):
+        """The number of label texts on the lid map."""
+        return sum(1 for k in self.comps if k.usable and spec.labels.get((k.col, k.row)))
 
 
 def run(spec, part, out):
@@ -96,7 +104,7 @@ def run(spec, part, out):
     args = ["--export-format", "binstl"] if Path(out).suffix == ".stl" else []
     for name, value in spec.defines().items():
         args += ["-D", f"{name}={value}"]
-    text = openscad(out, *args, "-D", f'part="{part}"', SCAD)
+    text = openscad(out, "--enable=textmetrics", *args, "-D", f'part="{part}"', SCAD)
     data = json.loads(re.search(r"^ECHO: tray_data = (.*)$", text, re.M).group(1))
     notes = re.findall(r'^ECHO: "(.*)"$', text, re.M)
     notes += [line for line in text.splitlines() if line.startswith("WARNING")]
@@ -113,7 +121,8 @@ def export(spec, out=None, log=print):
     """Write the Bambu Studio project.
 
     Plate 1 has the body and the lid as two objects. If compartments have label
-    texts, plate 2 has the labels.
+    texts, the inside of the lid has a map and plate 2 has the slide-in labels.
+    A lid title goes on the outside of the lid. The lid text uses filament 2.
     """
     from bambu3mf import BambuProject
 
@@ -129,14 +138,22 @@ def export(spec, out=None, log=print):
         log("Rendering the lid")
         run(spec, "lid", lid)
         labels = info.labels(spec)
+        lid_text = bool(spec.title or info.lid_labels(spec))
+        if lid_text:
+            log("Rendering the lid text")
+            run(spec, "lid_text", Path(tmp) / f"{name}-lid-text.stl")
 
         project = BambuProject(printer_settings_id=PRINTER, bed_size=(BED, BED),
-                               filaments=[BODY_FILAMENT, TEXT_FILAMENT] if labels else [BODY_FILAMENT])
+                               filaments=[BODY_FILAMENT, TEXT_FILAMENT] if labels or lid_text else [BODY_FILAMENT])
         # Body and lid side by side, centered on the bed
         x0, y0 = (BED - 2 * info.width - SPACING) / 2, (BED - info.length) / 2
         plate = project.add_plate(name=name)
         plate.add_stl(box, position=(x0, y0))
-        plate.add_stl(lid, position=(x0 + info.width + SPACING, y0))
+        lid_at = (x0 + info.width + SPACING, y0)
+        if lid_text:
+            plate.add_stl_group([(lid, 1), (Path(tmp) / f"{name}-lid-text.stl", 2)], position=lid_at)
+        else:
+            plate.add_stl(lid, position=lid_at)
         if labels:
             log(f"Rendering {len(labels)} labels for plate 2")
             labels_model.add_plate(project, tmp, labels)
