@@ -47,8 +47,10 @@ export const pool = new Pool(Math.max(2, Math.min(8, navigator.hardwareConcurren
 /** Run a job. Throw ModelError with the first assertion message if OpenSCAD fails. */
 export async function render(pool: Pool, job: Omit<Job, "id">): Promise<JobResult & { data: Uint8Array }> {
   const result = await pool.run(job);
-  const failed = /ERROR: Assertion .*? failed: "(.*?)"/.exec(result.log);
-  if (failed) throw new ModelError(failed[1]);
+  // For an echo file, OpenSCAD writes the assertion messages into the file
+  const text = job.output === "echo" && result.data ? result.log + new TextDecoder().decode(result.data) : result.log;
+  const failed = /ERROR: Assertion .*? failed: "(.*?)"/.exec(text);
+  if (failed) throw new ModelError(failed[1].charAt(0).toUpperCase() + failed[1].slice(1));
   if (!result.ok || !result.data) throw new ModelError(result.log.trim() || "OpenSCAD failed");
   return result as JobResult & { data: Uint8Array };
 }

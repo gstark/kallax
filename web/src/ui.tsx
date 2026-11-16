@@ -1,6 +1,6 @@
 // Form controls for the side panel.
 
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 export function Section({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
   return (
@@ -108,5 +108,41 @@ export function Button({ children, onClick, disabled, primary, title }: {
               primary ? "bg-ink text-sheet hover:bg-black" : "border border-rule bg-sheet text-ink hover:bg-white"}`}>
       {children}
     </button>
+  );
+}
+
+/** A length in mm. It reports a new value only when the text is a number in the range. */
+export function Millimetres({ label, value, min, max, onChange }: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange(value: number): void;
+}) {
+  const id = useId();
+  const [text, setText] = useState(String(value));
+  const [shown, setShown] = useState(value);
+  if (shown !== value) {
+    // The value changed from outside this field
+    setShown(value);
+    setText(String(value));
+  }
+  const n = Number.parseFloat(text);
+  const bad = !(n >= min && n <= max);
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <label htmlFor={id} className="text-[0.9375rem]">{label}</label>
+      <div className="flex items-center gap-1.5">
+        <input id={id} inputMode="decimal" value={text} aria-invalid={bad}
+               onChange={(e) => {
+                 setText(e.target.value);
+                 const v = Number.parseFloat(e.target.value);
+                 if (v >= min && v <= max) { setShown(v); onChange(v); }
+               }}
+               className={`w-20 rounded-md border bg-sheet px-2 py-1 text-right font-cond text-[1.0625rem] font-semibold focus:outline-none ${
+                 bad ? "border-fault focus:border-fault" : "border-rule focus:border-ink"}`} />
+        <span className="w-6 text-[0.875rem] text-muted">mm</span>
+      </div>
+    </div>
   );
 }

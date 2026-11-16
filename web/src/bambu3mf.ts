@@ -5,7 +5,9 @@
 //   shows a "Newer 3mf version" warning.
 // - project_settings.config must have filament_colour when there are plates.
 //   Without it, Bambu Studio crashes.
-// - printer_settings_id and filament_settings_id must be system preset names.
+// - printer_settings_id, print_settings_id, and filament_settings_id must be system
+//   preset names. For other print settings, give an object its own settings: they go
+//   on the object in model_settings.config and leave the preset as it is.
 // - Bambu Studio puts an object on a plate by its position, not by the plate
 //   list in model_settings.config. Plates are on a grid with a gap of 1/5 of
 //   the bed, and ceil(sqrt(plate count)) columns.
@@ -78,6 +80,7 @@ interface PlacedObject {
   parts: Part[];         // one part for a plain mesh
   group: boolean;
   offset: [number, number];   // translation on the bed, without the plate grid offset
+  settings: Record<string, string>;   // print settings for this object only, for example wall_loops
 }
 
 type Position = [number, number] | undefined;   // the bounding-box min corner on the bed. Undefined: center it.
@@ -88,17 +91,18 @@ export class Plate {
   constructor(private project: BambuProject, readonly id: number, readonly name: string) {}
 
   /** Add one mesh as an object. */
-  addMesh(mesh: Mesh, { position, extruder = 1 }: { position?: Position; extruder?: number } = {}) {
+  addMesh(mesh: Mesh, { position, extruder = 1, settings = {} }:
+            { position?: Position; extruder?: number; settings?: Record<string, string> } = {}) {
     const id = this.project.newId();
     this.objects.push({ id, name: mesh.name, group: false, parts: [{ id, mesh, extruder }],
-                        offset: this.offset([mesh], position) });
+                        offset: this.offset([mesh], position), settings });
   }
 
   /** Add meshes as the parts of one object. Each part can use its own filament. */
   addGroup(entries: { mesh: Mesh; extruder: number }[], { position }: { position?: Position } = {}) {
     const parts = entries.map(({ mesh, extruder }) => ({ id: this.project.newId(), mesh, extruder }));
     this.objects.push({ id: this.project.newId(), name: entries[0]?.mesh.name ?? "group", group: true, parts,
-                        offset: this.offset(entries.map((e) => e.mesh), position) });
+                        offset: this.offset(entries.map((e) => e.mesh), position), settings: {} });
   }
 
   private offset(meshes: Mesh[], position: Position): [number, number] {
@@ -119,7 +123,12 @@ export class BambuProject {
   plates: Plate[] = [];
   private lastId = 0;
 
-  constructor(readonly options: { bedSize: [number, number]; printerSettingsId: string; filaments: Filament[] }) {}
+  constructor(readonly options: {
+    bedSize: [number, number];
+    printerSettingsId: string;
+    printSettingsId?: string;   // the process preset, for example "0.28mm Extra Draft @BBL X1C"
+    filaments: Filament[];
+  }) {}
 
   get bedSize() {
     return this.options.bedSize;
@@ -204,6 +213,7 @@ export class BambuProject {
       from: "project",
       printable_area: ["0x0", `${w}x0`, `${w}x${h}`, `0x${h}`],
       printer_settings_id: this.options.printerSettingsId,
+      ...(this.options.printSettingsId ? { print_settings_id: this.options.printSettingsId } : {}),
       filament_settings_id: f.map((x) => x.settingsId),
       filament_diameter: f.map((x) => x.diameter ?? "1.75"),
       filament_colour: f.map((x) => x.colour ?? "#00AE42"),
@@ -217,7 +227,8 @@ export class BambuProject {
     const out = ["<config>"];
     for (const plate of this.plates) {
       for (const obj of plate.objects) {
-        out.push(`<object id="${obj.id}">`, meta("name", obj.name), meta("extruder", obj.group ? 1 : obj.parts[0].extruder));
+        out.push(`<object id="${obj.id}">`, meta("name", obj.name), meta("extruder", obj.group ? 1 : obj.parts[0].extruder),
+                 ...Object.entries(obj.settings).map(([k, v]) => meta(k, v)));
         if (obj.group) {
           for (const part of obj.parts) {
             out.push(`<part id="${part.id}" subtype="normal_part">`, meta("name", part.mesh.name),
