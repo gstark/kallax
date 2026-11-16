@@ -13,13 +13,15 @@
   just tray -y --width half --cols 2 --rows 5 --merge 0,1,1,2    # no editor
 
 In the editor, set the size and the grid, then merge grid units into larger
-compartments on the top view. Type a label text for a compartment. The text
+compartments on the top view. Or press ctrl+f and answer questions about the
+items to store: the editor finds the smallest trays that hold them. Type a label text for a compartment. The text
 goes on a map inside the lid, and on a slide-in label on a second plate if the
 compartment has label guides. A lid title goes on the outside of the lid.
 """
 
 import argparse
 import copy
+import re
 import sys
 
 from rich.text import Text
@@ -29,9 +31,13 @@ from textual.app import App
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
+from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RadioButton, RadioSet, RichLog, Static
+from textual.widgets import (Button, Checkbox, Footer, Header, Input, Label, OptionList, RadioButton, RadioSet,
+                             RichLog, Static)
+from textual.widgets.option_list import Option
 
+import fit
 from common import ModelError
 from tray_model import COLS, HEIGHTS, LENGTHS, ROWS, WIDTHS, Spec, export, inspect
 
@@ -258,10 +264,181 @@ class GridEditor(Widget, can_focus=True):
         self.post_message(self.Edited())
 
 
+class Interview(ModalScreen):
+    """Questions about the items to store, one at a time. It finds the trays that hold them.
+
+    The screen returns the spec of the chosen tray, or None.
+    """
+
+    BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
+    DEFAULT_CSS = """
+    Interview { align: center middle; }
+    #interview { width: 96; max-width: 100%; height: 90%; border: round $primary; background: $surface; padding: 0 1; }
+    #talk { height: 1fr; }
+    #question { margin-top: 1; text-style: bold; }
+    #results { height: auto; max-height: 70%; display: none; }
+    """
+    QUESTIONS = {
+        "name": ("What do you want to store? Type a short name. The name becomes the label of its compartments. "
+                 "You can leave it empty.", "for example WAGO 2"),
+        "size": ("Measure one at its largest point. Type the width, length, and height in mm.", "for example 42x38x17"),
+        "count": ("How many do you have?", "1"),
+        "loose": ("Does each one get its own compartment, or do they all go loose into one compartment? "
+                  "Type e for each or l for loose.", "e or l"),
+        "more": ("Do you have another item to store? Type y or n.", "y or n"),
+        "heights": ("Which tray heights can I use? Type any, or one or more of "
+                    f"{' '.join(f'{h:g}' for h in HEIGHTS)}.", "any"),
+    }
+
+    def __init__(self, base):
+        super().__init__()
+        self.base = base      # the editor spec: pull, guides, title, and name come from it
+        self.items = []
+        self.item = None      # the item that the questions are about
+        self.step = "name"
+        self.found = []
+
+    def compose(self):
+        with Vertical(id="interview"):
+            yield RichLog(id="talk", wrap=True, markup=False)
+            yield Static(id="question")
+            yield Input(id="answer")
+            yield OptionList(id="results")
+
+    def on_mount(self):
+        self.query_one("#interview").border_title = "Find a tray for your items"
+        self.query_one("#interview").border_subtitle = "enter answers · escape closes"
+        self.ask()
+
+    def ask(self, error=""):
+        question, example = self.QUESTIONS[self.step]
+        self.query_one("#question", Static).update(Text.assemble((error + "\n", "bold red") if error else "", question))
+        field = self.query_one("#answer", Input)
+        field.value, field.placeholder = "", example
+        field.focus()
+
+    @on(Input.Changed)
+    def keep_input(self, event):
+        event.stop()   # the editor form has its own Input.Changed handler
+
+    @on(Input.Submitted, "#answer")
+    def answered(self, event):
+        event.stop()
+        text, step = event.value.strip(), self.step
+        error = getattr(self, f"answer_{step}")(text)
+        if error:
+            self.ask(error)
+            return
+        talk = self.query_one("#talk", RichLog)
+        talk.write(Text(self.QUESTIONS[step][0], "dim"))
+        talk.write(Text(f"› {text or '(empty)'}", "bold"))
+        if step in ("count", "loose") and self.item is None:   # the item is complete
+            it = self.items[-1]
+            talk.write(Text(f"Item {fit.LETTERS[len(self.items) - 1]}: {fit.describe(it)}  {it.name}", "#f2c14e"))
+        if self.step != "search":
+            self.ask()
+
+    def answer_name(self, text):
+        self.item = fit.Item(text, 0, 0, 0, 1)
+        self.step = "size"
+
+    def answer_size(self, text):
+        sizes = [v for v in re.split(r"[x×*,\s]+", text.lower()) if v]
+        try:
+            w, l, h = (float(v) for v in sizes)
+        except ValueError:
+            return "Type three numbers, for example 42x38x17."
+        if min(w, l, h) <= 0:
+            return "Each size must be more than 0."
+        self.item.w, self.item.l, self.item.h = w, l, h
+        self.step = "count"
+
+    def answer_count(self, text):
+        try:
+            count = int(text or 1)
+        except ValueError:
+            return "Type a whole number."
+        if count < 1:
+            return "Type 1 or more."
+        self.item.count = count
+        if count > 1:
+            self.step = "loose"
+        else:
+            self.add()
+
+    def answer_loose(self, text):
+        if text.lower()[:1] not in ("e", "l"):
+            return "Type e or l."
+        self.item.loose = text.lower().startswith("l")
+        self.add()
+
+    def add(self):
+        self.items.append(self.item)
+        self.item = None
+        self.step = "more" if len(self.items) < len(fit.LETTERS) else "heights"
+
+    def answer_more(self, text):
+        if text.lower()[:1] not in ("y", "n"):
+            return "Type y or n."
+        self.step = "name" if text.lower().startswith("y") else "heights"
+
+    def answer_heights(self, text):
+        if text.lower() in ("", "any"):
+            heights = HEIGHTS
+        else:
+            try:
+                heights = sorted({float(v) for v in re.split(r"[,\s]+", text) if v})
+            except ValueError:
+                heights = []
+            if not heights or any(h not in HEIGHTS for h in heights):
+                return f"Type any, or heights from this list: {' '.join(f'{h:g}' for h in HEIGHTS)}."
+        self.step = "search"
+        self.query_one("#answer", Input).display = False
+        self.query_one("#question", Static).update("Looking for trays. This takes a few seconds.")
+        self.search(heights)
+
+    @work(thread=True, exclusive=True)
+    def search(self, heights):
+        try:
+            found, error = fit.find(self.items, self.base.pull, self.base.guides, heights=heights), None
+        except ModelError as failed:
+            found, error = [], str(failed)
+        self.app.call_from_thread(self.show, found, error)
+
+    def show(self, found, error):
+        self.found = found
+        question = self.query_one("#question", Static)
+        if error:
+            question.update(Text(f"The model failed: {error}", "bold red"))
+            return
+        if not found:
+            question.update(Text("No single tray holds these items. Split them into two or more sets. "
+                                 "Press escape to close.", "bold yellow"))
+            return
+        question.update("Choose a tray. Press enter to load it into the editor.")
+        results = self.query_one("#results", OptionList)
+        for n, (plan, spec) in enumerate(found, 1):
+            lines = [Text(f"{n}. {fit.title(plan, spec)}", "bold")]
+            lines += [Text(f"   {line}", "dim" if line in ("back", "front") else "") for line in fit.tray_map(plan)]
+            lines += [Text(f"   {fit.LETTERS[i]}  {it.name or fit.describe(it)}", "#f2c14e")
+                      for i, it in enumerate(self.items)]
+            results.add_option(Option(Text("\n").join(lines)))
+        results.display = True
+        results.highlighted = 0
+        results.focus()
+
+    @on(OptionList.OptionSelected, "#results")
+    def chosen(self, event):
+        spec = self.found[event.option_index][1]
+        spec.title, spec.name = self.base.title, self.base.name
+        self.dismiss(spec)
+
+
 class TrayApp(App):
     TITLE = "Kallas tray"
     ENABLE_COMMAND_PALETTE = False
-    BINDINGS = [Binding("ctrl+g", "generate", "Generate 3MF"), Binding("ctrl+q", "quit", "Quit")]
+    BINDINGS = [Binding("ctrl+f", "find", "Find a tray for my items"), Binding("ctrl+g", "generate", "Generate 3MF"),
+                Binding("ctrl+q", "quit", "Quit")]
     CSS = """
     #form { width: 46; border: round $primary; padding: 0 1; }
     #view { border: round $primary; padding: 0 2; height: 1fr; }
@@ -278,7 +455,7 @@ class TrayApp(App):
     #grid Label { padding: 1 1 0 0; }
     #grid Input { width: 9; }
     #grid { height: 3; }
-    #generate { width: 100%; margin-top: 1; }
+    #generate, #find { width: 100%; margin-top: 1; }
     """
 
     def __init__(self, spec, output=None):
@@ -314,6 +491,7 @@ class TrayApp(App):
                 yield Input(spec.title, max_length=24, id="title")
                 yield Label("File name", classes="field")
                 yield Input(spec.name, id="name")
+                yield Button("Find a tray for my items", id="find")
                 yield Button("Generate 3MF", variant="primary", id="generate")
             with Vertical():
                 with VerticalScroll(id="view"):
@@ -341,12 +519,15 @@ class TrayApp(App):
     @on(RadioSet.Changed)
     def radio_changed(self, event):
         field, _, value = event.pressed.id.partition("-")
-        if field == "length":
+        # A value that is already in the spec came from a found tray. Keep its grid.
+        if field == "length" and value != self.spec.length:
             self.spec.length = value
             self.query_one("#rows", Input).value = str(ROWS[value])
-        elif field == "width":
+        elif field == "width" and value != self.spec.width:
             self.spec.width = value
             self.query_one("#cols", Input).value = str(COLS[value])
+        elif field in ("length", "width"):
+            pass
         else:
             self.query_one("#height-value", Input).disabled = value != "other"
             if value != "other":
@@ -459,6 +640,30 @@ class TrayApp(App):
         field.disabled = not (here and here.usable)
         field.placeholder = ("solid compartment" if not (here and here.usable) else
                              "about 6 characters print well" if here.guided else "lid map only: no label guides")
+
+    # -- find a tray --------------------------------------------------------
+
+    @on(Button.Pressed, "#find")
+    def action_find(self):
+        self.push_screen(Interview(copy.deepcopy(self.spec)), self.load)
+
+    def load(self, found):
+        """Put a found tray in the editor. Set the spec first: the form events then change nothing."""
+        if found is None:
+            return
+        for name in ("length", "width", "height", "cols", "rows", "merges", "labels"):
+            setattr(self.spec, name, getattr(found, name))
+        self.query_one(f"#length-{found.length}", RadioButton).value = True
+        self.query_one(f"#width-{found.width}", RadioButton).value = True
+        self.query_one(f"#height-{found.height:g}", RadioButton).value = True
+        self.query_one("#cols", Input).value = str(found.cols)
+        self.query_one("#rows", Input).value = str(found.rows)
+        editor = self.query_one(GridEditor)
+        editor.cursor, editor.anchor = (0, 0), None
+        editor.info = None   # the old sizes do not match the new grid
+        editor.focus()
+        self.model_changed()
+        self.notify("The editor has the tray. You can change it before you generate the 3MF.")
 
     # -- export -------------------------------------------------------------
 

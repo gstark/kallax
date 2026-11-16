@@ -11,3 +11,8 @@ tray *args:
 [positional-arguments]
 labels *args:
     @./export-labels.py "$@"
+
+# Find the smallest tray for a set of items, one item in each compartment. Example: just fit "2 jacks=42x38x17@4" 42x26x17@2
+[positional-arguments]
+fit *args:
+    @./fit.py "$@"

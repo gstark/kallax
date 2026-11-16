@@ -88,6 +88,7 @@ class Info:
     unit_l: float     # one grid unit, along the tray
     comps: list
     notes: list
+    fit: dict       # constants for fit.py
 
     def labels(self, spec):
         """The slide-in label texts to print, in reading order on the top view: back row first."""
@@ -106,9 +107,11 @@ def run(spec, part, out):
         args += ["-D", f"{name}={value}"]
     text = openscad(out, "--enable=textmetrics", *args, "-D", f'part="{part}"', SCAD)
     data = json.loads(re.search(r"^ECHO: tray_data = (.*)$", text, re.M).group(1))
+    fit = json.loads(re.search(r"^ECHO: fit_data = (.*)$", text, re.M).group(1))
     notes = re.findall(r'^ECHO: "(.*)"$', text, re.M)
     notes += [line for line in text.splitlines() if line.startswith("WARNING")]
-    return Info(*data[:7], comps=[Comp(*c) for c in data[7]], notes=notes)
+    keys = ("wall", "div_t", "min_cell", "cut", "pull_w0", "r_cell", "scoop_r", "groove_h", "guide_p", "guide_w")
+    return Info(*data[:7], comps=[Comp(*c) for c in data[7]], notes=notes, fit=dict(zip(keys, fit)))
 
 
 def inspect(spec):

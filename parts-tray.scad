@@ -127,6 +127,9 @@ outline = !pull ? rect([w, d], rounding=r_vert) : round_corners(
 // For tray.py: sizes of the tray and of each compartment
 echo(tray_data=[w, d, height, bh - floor_t, pw, cw, cd,
                 [for (c = comps) [c[0], c[1], c[2], c[3], comp_w(c), comp_l(c), usable(c), guided(c)]]]);
+// For fit.py: the constants that its packer uses to try grids without a model run
+echo(fit_data=[wall, div_t, min_cell, cut, pull_w0, r_cell, scoop_r, groove_h,
+               label_guides && label_z >= 1 ? guide_p : 0, slot_w + 2.4]);
 n_usable = len([for (c = comps) if (usable(c)) 1]);
 n_guided = len([for (c = comps) if (guided(c)) 1]);
 echo(str("Tray ", w, " x ", d, " x ", height, " mm, ", n_usable, " compartments on a ", cols, " x ", rows,
