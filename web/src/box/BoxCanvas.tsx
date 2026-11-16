@@ -1,4 +1,4 @@
-// The Kallas box on the mat: a top view and a front view, side by side, at true scale.
+// The Kallax box on the mat: a top view and a front view, side by side, at true scale.
 // SVG units are millimetres. Both views stand on the same ground line, the front edge.
 // The top view shows the 4 x 10 grid of cells that the trays and small boxes use.
 
@@ -7,7 +7,7 @@ import { Mat } from "../mat";
 import type { BoxInfo } from "./box";
 
 const GRID = { cols: 4, rows: 10 };   // box-params.scad: px = in_w / 4, py = in_d / 10
-const ROUND_BOTTOM = 3;               // round_bottom in kallas-box.scad
+const ROUND_BOTTOM = 3;               // round_bottom in kallax-box.scad
 const BETWEEN = 44;                   // space between the two views
 
 function roundedRect(x: number, y: number, w: number, h: number, r: number) {
@@ -65,7 +65,7 @@ export function BoxCanvas({ info, stale, busy }: { info: BoxInfo; stale: boolean
 
   return (
     <svg viewBox={`${left} ${top} ${right - left} ${bottom - top}`} preserveAspectRatio="xMidYMid meet" className="h-full w-full"
-         role="img" aria-label={`The Kallas box, ${W} by ${D} by ${H} mm, seen from the top and from the front`}>
+         role="img" aria-label={`The Kallax box, ${W} by ${D} by ${H} mm, seen from the top and from the front`}>
       <Mat x={0} y={0} />
 
       <g opacity={stale ? 0.55 : 1} style={{ transition: "opacity 160ms" }}>

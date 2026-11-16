@@ -1,4 +1,4 @@
-// Small boxes with friction-fit lids that tile inside the Kallas Box.
+// Small boxes with friction-fit lids that tile inside the Kallax Box.
 //
 // The grid and wall parameters are in box-params.scad. A box takes nx x ny
 // cells. Box heights include the lid, so heights of 24 + 24 + 48
@@ -121,7 +121,7 @@ preset = "medium";
 p = pget(preset);
 
 if (part == "layout") {
-    // Ghost of the parent, so the preview does not need kallas-box.stl
+    // Ghost of the parent, so the preview does not need kallax-box.stl
     %difference() {
         cuboid([in_w + 2 * parent_wall, in_d + 2 * parent_wall, in_h + 2], rounding=4 + parent_wall, edges="Z", anchor=BOT+LEFT+FWD);
         translate(in_origin)

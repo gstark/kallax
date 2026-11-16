@@ -1,4 +1,4 @@
-// Kallas Box - open top box
+// Kallax Box - open top box
 // Interior: 96mm x 246mm. The outside grows with the wall thickness
 // (102mm x 252mm x 100mm with 3mm walls).
 // Open on top (along the long side)

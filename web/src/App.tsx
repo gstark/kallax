@@ -1,4 +1,4 @@
-// The page: the Kallas box, and the trays that go in it. "Find a tray" loads its result into the tray editor.
+// The page: the Kallax box, and the trays that go in it. "Find a tray" loads its result into the tray editor.
 // The header stays in place across the modes, so the underline under the mode can slide to the next one.
 
 import { useLayoutEffect, useRef, useState } from "react";
@@ -62,8 +62,11 @@ export function App() {
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh lg:min-h-0">
       <header className="flex flex-wrap items-center gap-x-8 border-b border-rule bg-sheet px-5">
-        <h1 className="py-2.5 font-cond text-[1.75rem] font-semibold leading-none tracking-[-0.01em]">Kallas workbench</h1>
+        <h1 className="py-2.5 font-cond text-[1.75rem] font-semibold leading-none tracking-[-0.01em]">Kallax workbench</h1>
         <ModeNav mode={mode} onChange={setMode} />
+        <p className="basis-full pb-2 text-[0.75rem] leading-snug text-muted md:ml-auto md:basis-auto md:pb-0 md:text-right">
+          KALLAX is a trademark of Inter IKEA Systems B.V. This project is not affiliated with IKEA.
+        </p>
       </header>
       {mode === "box" && <BoxEditor spec={box} setSpec={setBox} />}
       {mode === "edit" && <TrayEditor spec={spec} setSpec={setSpec} />}

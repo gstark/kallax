@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
-from common import ROOT, openscad
+from common import MODELS, openscad
 
-SCAD = ROOT / "labels.scad"
+SCAD = MODELS / "labels.scad"
 
 
 def add_plate(project, tmp, texts, name="Labels"):

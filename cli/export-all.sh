@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Export one of every organizer-bin combination to STL.
-#   ./export-all.sh          -> individual part STLs for every preset, into stl/
-#   ./export-all.sh combined -> single stl/all-bins.stl with one set of everything
+#   cli/export-all.sh          -> individual part STLs for every preset, into stl/
+#   cli/export-all.sh combined -> single stl/all-bins.stl with one set of everything
 #
-# The parent tray itself is already kallas-box.stl (from kallas-box.scad).
+# The parent tray itself is already kallax-box.stl (from kallax-box.scad).
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."   # the repo root: the models are in models/, the STLs go to stl/
 
 OSCAD="${OPENSCAD:-openscad}"
-SCAD=organizer-bins.scad
+SCAD=models/organizer-bins.scad
 OUT=stl
 mkdir -p "$OUT"
 

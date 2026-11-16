@@ -1,5 +1,6 @@
 #!/bin/sh
 # Replace the OpenSCAD WebAssembly build in public/openscad/. The files are in git.
+# Update the version and the git commit in public/openscad/NOTICE after a change.
 # Usage: pnpm openscad 2026.11.16   (a snapshot from files.openscad.org/snapshots/)
 set -eu
 cd "$(dirname "$0")/.."

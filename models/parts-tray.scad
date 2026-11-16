@@ -1,5 +1,5 @@
 // Parts tray: a box with a grid of compartments and a friction-fit lid.
-// It tiles inside the Kallas Box on the same grid as small-boxes.scad.
+// It tiles inside the Kallax Box on the same grid as small-boxes.scad.
 //
 // The dividers go up to the rim. The lid rests on them and closes each
 // compartment, so small parts stay in place when the tray tilts.

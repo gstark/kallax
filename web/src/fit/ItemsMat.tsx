@@ -5,7 +5,7 @@ import { Mat } from "../mat";
 import { LETTERS, type Item } from "./fit";
 
 const GAP = 12;        // between items, mm
-const ROW_WIDTH = 246; // wrap at the length of the Kallas box interior
+const ROW_WIDTH = 246; // wrap at the length of the Kallax box interior
 const LABEL = 14;      // room under each item for its name
 
 interface Box {

@@ -12,7 +12,7 @@
   3mf/small-boxes-each.3mf    one plate per box type (box + lid)
   3mf/small-boxes-packed.3mf  every box and lid packed onto as few plates as possible
 
-  ./export-3mf.py
+  cli/export-3mf.py
 """
 
 import math
@@ -25,8 +25,8 @@ import rectpack
 from bambu3mf import BambuProject
 from stl import mesh
 
-ROOT = Path(__file__).resolve().parent
-SCAD = ROOT / "small-boxes.scad"
+ROOT = Path(__file__).resolve().parent.parent
+SCAD = ROOT / "models" / "small-boxes.scad"
 OUT = ROOT / "3mf"
 
 BED = 256        # P1S bed, mm

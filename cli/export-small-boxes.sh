@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Export one box + lid STL for every preset in small-boxes.scad, into stl/small-boxes/.
-#   ./export-small-boxes.sh            -> every preset
-#   ./export-small-boxes.sh tiny wide  -> only the named presets
+#   cli/export-small-boxes.sh            -> every preset
+#   cli/export-small-boxes.sh tiny wide  -> only the named presets
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."   # the repo root: the models are in models/, the STLs go to stl/
 
 OSCAD="${OPENSCAD:-openscad}"
-SCAD=small-boxes.scad
+SCAD=models/small-boxes.scad
 OUT=stl/small-boxes
 mkdir -p "$OUT"
 

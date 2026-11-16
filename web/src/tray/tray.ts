@@ -8,7 +8,7 @@ import { BED, BODY_FILAMENT, TEXT_FILAMENT } from "../printer";
 
 export const LENGTHS = ["full", "half", "quarter"] as const;
 export const WIDTHS = ["full", "half"] as const;
-export const HEIGHTS = [24, 32, 48, 96];   // these stack to fill the Kallas box
+export const HEIGHTS = [24, 32, 48, 96];   // these stack to fill the Kallax box
 export const ROWS = { full: 8, half: 4, quarter: 2 } as const;
 export const COLS = { full: 3, half: 2 } as const;
 const SPACING = 6;   // between the body and the lid on the plate

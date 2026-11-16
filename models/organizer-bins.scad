@@ -1,4 +1,4 @@
-// Organizer Bins - lidded boxes that tile inside the Kallas Box
+// Organizer Bins - lidded boxes that tile inside the Kallax Box
 // Parent interior (usable): ~96 wide x 246 deep x ~98 tall
 //
 // Each bin: base + fold-over lid, joined by a separate-pin knuckle hinge

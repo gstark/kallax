@@ -1,5 +1,7 @@
 // Convert Barlow Condensed SemiBold to the three.js typeface format, for the 3D text
 // in the preview. Only printable ASCII and "×" are kept, so the file stays small.
+// The output is a derivative of the font, so it stays under the SIL Open Font License:
+// see src/preview/barlow-condensed-600.OFL.txt.
 // The conversion follows TTFLoader in three/examples. Run: pnpm typeface
 import { readFileSync, writeFileSync } from "node:fs";
 import opentype from "opentype.js";

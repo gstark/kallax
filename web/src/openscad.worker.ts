@@ -7,7 +7,7 @@ import { unzipSync } from "fflate";
 
 export interface Job {
   id: number;
-  file: string;                       // a .scad file name in the repo root
+  file: string;                       // a .scad file name in models/
   defines: Record<string, string>;    // -D name=value, value in OpenSCAD syntax
   output: "stl" | "echo";
 }
@@ -32,8 +32,8 @@ interface Instance {
 
 type Factory = (options: object) => Promise<Instance>;
 
-// The models, as text, from the repo root
-const SOURCES = import.meta.glob("../../*.scad", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+// The models, as text, from models/ in the repo
+const SOURCES = import.meta.glob("../../models/*.scad", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 
 let ready: Promise<{ factory: Factory; wasm: WebAssembly.Module; bosl2: Record<string, Uint8Array>; font: Uint8Array }> | null = null;
 

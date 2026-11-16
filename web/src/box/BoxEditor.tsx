@@ -1,4 +1,4 @@
-// The Kallas box editor: the form, the top and front views on the mat, and Make 3MF.
+// The Kallax box editor: the form, the top and front views on the mat, and Make 3MF.
 
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { toProject } from "../build";
@@ -61,7 +61,7 @@ export function BoxEditor({ spec, setSpec }: { spec: BoxSpec; setSpec: Dispatch<
   const mat = view === "3d" ? (
     <>
       <ViewSwitch view={view} onChange={setView} />
-      <PreviewPane preview={preview} what="the box" size={info ? `${info.width} × ${info.depth} × ${info.height} mm` : "Kallas box"} />
+      <PreviewPane preview={preview} what="the box" size={info ? `${info.width} × ${info.depth} × ${info.height} mm` : "Kallax box"} />
     </>
   ) : info ? (
     <>

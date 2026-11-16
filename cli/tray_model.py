@@ -12,15 +12,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import labels_model
-from common import BED, BODY_FILAMENT, PRINTER, ROOT, TEXT_FILAMENT, ModelError, openscad
+from common import BED, BODY_FILAMENT, MODELS, PRINTER, ROOT, TEXT_FILAMENT, ModelError, openscad
 
-SCAD = ROOT / "parts-tray.scad"
+SCAD = MODELS / "parts-tray.scad"
 OUT = ROOT / "3mf"
 SPACING = 6      # gap between the body and the lid
 
 LENGTHS = ("full", "half", "quarter")
 WIDTHS = ("full", "half")
-HEIGHTS = (24, 32, 48, 96)   # these stack to fill the Kallas Box
+HEIGHTS = (24, 32, 48, 96)   # these stack to fill the Kallax Box
 # Default grids. They give units of about 30 x 29 mm, or 21 mm wide in a half-width tray.
 ROWS = {"full": 8, "half": 4, "quarter": 2}
 COLS = {"full": 3, "half": 2}

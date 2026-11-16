@@ -1,0 +1,14 @@
+OpenSCAD for WebAssembly
+
+openscad.js and openscad.wasm in this folder are an unchanged build of OpenSCAD:
+
+  Version: snapshot 2026.11.16 (git e65a9229), see VERSION
+  Download: https://files.openscad.org/snapshots/OpenSCAD-2026.11.16-WebAssembly-web.zip
+  Source:   https://github.com/openscad/openscad
+
+OpenSCAD is free software under the GNU General Public License, version 2 or
+(at your option) any later version. See COPYING in this folder. The build also
+includes other libraries, such as CGAL (GPL 3 or later) and Manifold (Apache 2.0),
+under their own licenses. The source of each is available from the projects above.
+
+These files are not covered by the MIT license of this repository.

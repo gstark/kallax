@@ -6,7 +6,7 @@
 #   "textual",
 # ]
 # ///
-"""Tray editor for the Kallas Box. It writes a Bambu Studio project for one parts tray.
+"""Tray editor for the Kallax Box. It writes a Bambu Studio project for one parts tray.
 
   just tray                             # open the editor
   just tray --length full --rows 6      # open the editor with these values
@@ -435,7 +435,7 @@ class Interview(ModalScreen):
 
 
 class TrayApp(App):
-    TITLE = "Kallas tray"
+    TITLE = "Kallax tray"
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [Binding("ctrl+f", "find", "Find a tray for my items"), Binding("ctrl+g", "generate", "Generate 3MF"),
                 Binding("ctrl+q", "quit", "Quit")]
@@ -710,7 +710,7 @@ def main():
     ap.add_argument("--width", choices=WIDTHS, default="full", help="95 or 47 mm (default: full)")
     ap.add_argument("--height", type=float, default=24,
                     help="total height with the lid, in mm. 24, 32, 48, and 96 stack "
-                         "to fill the Kallas Box (default: 24)")
+                         "to fill the Kallax Box (default: 24)")
     ap.add_argument("--cols", type=int, help="grid units across the width (default: 3, or 2 for half width)")
     ap.add_argument("--rows", type=int, help="grid units along the length (default: 8, 4, or 2)")
     ap.add_argument("--merge", type=merge_arg, action="append", default=[], metavar="COL,ROW,WIDE,LONG",

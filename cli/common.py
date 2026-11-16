@@ -4,7 +4,8 @@ import re
 import subprocess
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent   # the repo root. The tools write into ROOT / "3mf".
+MODELS = ROOT / "models"                         # the OpenSCAD files, shared with the web workbench
 
 BED = 256        # P1S bed, mm
 PRINTER = "Bambu Lab P1S 0.4 nozzle"
