@@ -3,20 +3,32 @@
 // +y toward the back. SVG y goes down, so the back is at the top of the drawing.
 
 import { useRef, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { Mat } from "../mat";
 import { key, type Block, type Comp, type TrayInfo, type TraySpec } from "./tray";
 
 export type Unit = [number, number];   // col, row
 
+/** An item drawn at true size in a compartment, for the fit results. */
+export interface Mark {
+  block: Block;
+  letter: string;
+  w: number;
+  l: number;
+  note?: string;   // for example "50, loose"
+}
+
 interface Props {
   spec: TraySpec;
   info: TrayInfo;
-  cursor: Unit;
-  selection: Block;
-  selecting: boolean; // the user is extending a selection of units
-  stale: boolean;     // the model has not answered for the newest spec yet
-  busy: boolean;      // a render is running
-  onPick(unit: Unit, extend: boolean): void;
-  onKey(event: KeyboardEvent<SVGSVGElement>): void;
+  cursor?: Unit;
+  selection?: Block;
+  selecting?: boolean; // the user is extending a selection of units
+  stale?: boolean;     // the model has not answered for the newest spec yet
+  busy?: boolean;      // a render is running
+  marks?: Mark[];
+  label?: string;      // the accessible name when the drawing is for looking only
+  onPick?(unit: Unit, extend: boolean): void;
+  onKey?(event: KeyboardEvent<SVGSVGElement>): void;
 }
 
 const MARGIN = 26;        // room on the mat for the dimension lines
@@ -96,7 +108,49 @@ function CompLabel({ comp, rect, label, selected }: { comp: Comp; rect: { x: num
   );
 }
 
-export function TrayCanvas({ spec, info, cursor, selection, selecting, stale, busy, onPick, onKey }: Props) {
+/**
+ * An item outline, centred in its compartment, turned to fit the compartment the long way.
+ * Loose items fill the compartment as a pile.
+ */
+function ItemMark({ mark, rect }: { mark: Mark; rect: { x: number; y: number; w: number; h: number } }) {
+  if (mark.note) {
+    const size = Math.max(4, Math.min(12, rect.w / 3, rect.h / 4));
+    const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+    return (
+      <g pointerEvents="none">
+        <rect x={rect.x + 2} y={rect.y + 2} width={rect.w - 4} height={rect.h - 4} rx={3} fill="url(#pile)" />
+        <rect x={cx - size * 1.6} y={cy - size * 0.95} width={size * 3.2} height={size * 1.9} rx={1.5} className="fill-pla-floor" />
+        <text x={cx} y={cy + size * 0.12} fontSize={size} fontWeight={600} textAnchor="middle" className="fill-ink font-cond">
+          {mark.letter}
+        </text>
+        <text x={cx} y={cy + size * 0.68} fontSize={Math.max(2.2, size / 2.6)} textAnchor="middle" className="fill-muted font-cond">
+          {mark.note}
+        </text>
+      </g>
+    );
+  }
+  const along = (mark.l >= mark.w) === (rect.h >= rect.w);
+  const w = Math.min(along ? mark.w : mark.l, rect.w - 1), h = Math.min(along ? mark.l : mark.w, rect.h - 1);
+  const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+  const size = Math.max(3, Math.min(9, w / 2.2, h / 2.2));
+  return (
+    <g pointerEvents="none">
+      <rect x={cx - w / 2} y={cy - h / 2} width={w} height={h} rx={1.2} className="fill-ink/10 stroke-ink" strokeWidth={0.45}
+            strokeDasharray={mark.note ? "1.4 1" : undefined} />
+      <text x={cx} y={cy + size * 0.35} fontSize={size} fontWeight={600} textAnchor="middle" className="fill-ink font-cond">
+        {mark.letter}
+      </text>
+      {mark.note && h > size * 2.6 && (
+        <text x={cx} y={cy + size * 1.25} fontSize={Math.max(2.2, size / 2.4)} textAnchor="middle" className="fill-muted font-cond">
+          {mark.note}
+        </text>
+      )}
+    </g>
+  );
+}
+
+export function TrayCanvas({ spec, info, cursor = [0, 0], selection, selecting = false, stale = false, busy = false,
+                             marks, label, onPick, onKey }: Props) {
   const svg = useRef<SVGSVGElement>(null);
   const drag = useRef<Unit | null>(null);
   const W = info.width, D = info.length;
@@ -111,56 +165,50 @@ export function TrayCanvas({ spec, info, cursor, selection, selecting, stale, bu
     return [Math.min(Math.max(col, 0), spec.cols - 1), Math.min(Math.max(row, 0), spec.rows - 1)];
   };
 
-  const sel = unitRect(info, selection);
+  const interactive = Boolean(onPick);
+  const sel = selection ? unitRect(info, selection) : null;
   const cur = unitRect(info, { col: cursor[0], row: cursor[1], cols: 1, rows: 1 });
-  const inSelection = (c: Comp) =>
-    c.col >= selection.col && c.col + c.cols <= selection.col + selection.cols &&
-    c.row >= selection.row && c.row + c.rows <= selection.row + selection.rows;
-  const many = selecting && selection.cols * selection.rows > 1;
+  const inSelection = (c: Comp) => Boolean(selection) && interactive &&
+    c.col >= selection!.col && c.col + c.cols <= selection!.col + selection!.cols &&
+    c.row >= selection!.row && c.row + c.rows <= selection!.row + selection!.rows;
+  const many = selecting && Boolean(selection) && selection!.cols * selection!.rows > 1;
 
   return (
     <svg
       ref={svg}
       viewBox={`${-W / 2 - MARGIN} ${-D / 2 - MARGIN} ${W + 2 * MARGIN} ${D + 2 * MARGIN}`}
       preserveAspectRatio="xMidYMid meet"
-      className="h-full w-full touch-none select-none outline-none focus-visible:[&_.focus-ring]:opacity-100"
-      tabIndex={0}
-      role="application"
-      aria-label="Tray compartments, seen from the top. Arrow keys move. Shift and an arrow key select units. M merges, S splits, Enter edits the label."
+      className={`h-full w-full select-none outline-none focus-visible:[&_.focus-ring]:opacity-100 ${interactive ? "touch-none" : ""}`}
+      tabIndex={interactive ? 0 : undefined}
+      role={interactive ? "application" : "img"}
+      aria-label={interactive
+        ? "Tray compartments, seen from the top. Arrow keys move. Shift and an arrow key select units. M merges, S splits, Enter edits the label."
+        : label}
       onKeyDown={onKey}
       onPointerDown={(e) => {
-        const unit = unitAt(e);
+        const unit = onPick && unitAt(e);
         if (!unit) return;
         svg.current?.setPointerCapture(e.pointerId);
         drag.current = e.shiftKey ? cursor : unit;
-        onPick(unit, e.shiftKey);
+        onPick!(unit, e.shiftKey);
       }}
       onPointerMove={(e) => {
-        if (!drag.current) return;
+        if (!drag.current || !onPick) return;
         const unit = unitAt(e);
         if (unit && (unit[0] !== cursor[0] || unit[1] !== cursor[1])) onPick(unit, true);
       }}
       onPointerUp={() => { drag.current = null; }}
     >
+      <Mat x={-W / 2} y={-D / 2} />
       <defs>
-        <pattern id="mat-10" width={10} height={10} patternUnits="userSpaceOnUse" x={-W / 2} y={-D / 2}>
-          <path d="M 10 0 L 0 0 0 10" fill="none" className="stroke-mat-line" strokeWidth={0.3} />
-        </pattern>
-        <pattern id="mat-50" width={50} height={50} patternUnits="userSpaceOnUse" x={-W / 2} y={-D / 2}>
-          <path d="M 50 0 L 0 0 0 50" fill="none" className="stroke-mat-major" strokeWidth={0.45} />
+        <pattern id="pile" width={7} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(-18)">
+          <rect x={0.6} y={0.8} width={2.6} height={3.6} rx={0.6} className="fill-ink/15" />
+          <rect x={4} y={3.2} width={2.4} height={2.2} rx={0.6} className="fill-ink/10" />
         </pattern>
         <pattern id="solid" width={2.2} height={2.2} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
           <line x1={0} y1={0} x2={0} y2={2.2} className="stroke-pla-shade" strokeWidth={0.6} />
         </pattern>
-        <filter id="lift" x="-10%" y="-10%" width="120%" height="120%">
-          <feDropShadow dx={0.8} dy={1.4} stdDeviation={1.1} floodColor="#0d2a21" floodOpacity={0.45} />
-        </filter>
       </defs>
-
-      {/* The mat runs past the view in every direction */}
-      <rect x={-2000} y={-2000} width={4000} height={4000} className="fill-mat" />
-      <rect x={-2000} y={-2000} width={4000} height={4000} fill="url(#mat-10)" />
-      <rect x={-2000} y={-2000} width={4000} height={4000} fill="url(#mat-50)" />
 
       <Dimension from={-W / 2} to={W / 2} at={-D / 2 - 11} text={fmt(W)} />
       <Dimension from={-D / 2} to={D / 2} at={W / 2 + 11} vertical text={fmt(D)} />
@@ -186,11 +234,12 @@ export function TrayCanvas({ spec, info, cursor, selection, selecting, stale, bu
                 <rect x={r.x + r.w / 2 - 11.5} y={r.y} width={23} height={2.3} rx={1}
                       className="fill-pla-shade" />
               )}
-              <CompLabel comp={c} rect={r} label={spec.labels[key(c.col, c.row)]} selected={chosen} />
+              {!marks && <CompLabel comp={c} rect={r} label={spec.labels[key(c.col, c.row)]} selected={chosen} />}
             </g>
           );
         })}
-        {!stale && (
+        {marks?.map((m, i) => <ItemMark key={i} mark={m} rect={unitRect(info, m.block)} />)}
+        {!stale && sel && interactive && (
           <>
             <rect x={sel.x - 0.6} y={sel.y - 0.6} width={sel.w + 1.2} height={sel.h + 1.2} rx={FLOOR_R}
                   fill="none" className="stroke-signal" strokeWidth={many ? 1.1 : 0.9} />

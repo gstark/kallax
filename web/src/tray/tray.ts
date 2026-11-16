@@ -57,6 +57,22 @@ export interface TrayInfo {
   wall: number;
   divider: number;
   pocketDepth: number;
+  fit: FitConstants;
+}
+
+/** Model constants that the fit packer uses to try grids without a model run. See fit_data in parts-tray.scad. */
+export interface FitConstants {
+  wall: number;
+  divT: number;
+  minCell: number;
+  cut: number;        // how far the finger pocket goes into the tray
+  pullW0: number;     // pocket width when it cannot line up with one column
+  rCell: number;      // compartment corner and floor radius
+  scoopR: number;     // floor radius on the front side of each compartment
+  grooveH: number;
+  guideP: number;     // how far a label guide stands out from the back wall, 0 without guides
+  guideW: number;     // smallest compartment width that gets label guides
+  pullD: number;
 }
 
 export const DEFAULT_SPEC: TraySpec = {
@@ -98,6 +114,8 @@ export async function inspect(spec: TraySpec): Promise<TrayInfo> {
       col: c[0], row: c[1], cols: c[2], rows: c[3], width: c[4], length: c[5], usable: c[6], guided: c[7],
     })),
     notes, wall: fit[0], divider: fit[1], pocketDepth: fit[10],
+    fit: { wall: fit[0], divT: fit[1], minCell: fit[2], cut: fit[3], pullW0: fit[4], rCell: fit[5], scoopR: fit[6],
+           grooveH: fit[7], guideP: fit[8], guideW: fit[9], pullD: fit[10] },
   };
 }
 
