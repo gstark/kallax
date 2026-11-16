@@ -85,6 +85,19 @@ interface PlacedObject {
 
 type Position = [number, number] | undefined;   // the bounding-box min corner on the bed. Undefined: center it.
 
+/** The translation that puts these meshes at a position on the bed, or in its centre. */
+export function placeOnBed(meshes: Mesh[], position: Position, [bedW, bedH]: [number, number]): [number, number] {
+  const minX = Math.min(...meshes.map((m) => m.min[0])), maxX = Math.max(...meshes.map((m) => m.max[0]));
+  const minY = Math.min(...meshes.map((m) => m.min[1])), maxY = Math.max(...meshes.map((m) => m.max[1]));
+  if (!position) return [bedW / 2 - (minX + maxX) / 2, bedH / 2 - (minY + maxY) / 2];
+  const [x, y] = position;
+  if (x < 0 || y < 0 || x + maxX - minX > bedW || y + maxY - minY > bedH) {
+    throw new Error(`An object of ${(maxX - minX).toFixed(1)} x ${(maxY - minY).toFixed(1)} mm at (${x}, ${y}) ` +
+                    `goes off the ${bedW} x ${bedH} mm bed`);
+  }
+  return [x - minX, y - minY];
+}
+
 export class Plate {
   objects: PlacedObject[] = [];
 
@@ -106,16 +119,7 @@ export class Plate {
   }
 
   private offset(meshes: Mesh[], position: Position): [number, number] {
-    const [bedW, bedH] = this.project.bedSize;
-    const minX = Math.min(...meshes.map((m) => m.min[0])), maxX = Math.max(...meshes.map((m) => m.max[0]));
-    const minY = Math.min(...meshes.map((m) => m.min[1])), maxY = Math.max(...meshes.map((m) => m.max[1]));
-    if (!position) return [bedW / 2 - (minX + maxX) / 2, bedH / 2 - (minY + maxY) / 2];
-    const [x, y] = position;
-    if (x < 0 || y < 0 || x + maxX - minX > bedW || y + maxY - minY > bedH) {
-      throw new Error(`An object of ${(maxX - minX).toFixed(1)} x ${(maxY - minY).toFixed(1)} mm at (${x}, ${y}) ` +
-                      `goes off the ${bedW} x ${bedH} mm bed`);
-    }
-    return [x - minX, y - minY];
+    return placeOnBed(meshes, position, this.project.bedSize);
   }
 }
 

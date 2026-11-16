@@ -1,9 +1,10 @@
 // The Kallas box: its spec, the size query, and the Bambu Studio project.
 // All sizes come from kallas-box.scad.
 
-import { BambuProject, readStl } from "../bambu3mf";
+import { readStl } from "../bambu3mf";
+import type { Build } from "../build";
 import { pool, render } from "../openscad";
-import { BED, BODY_FILAMENT, PRINTER } from "../printer";
+import { BED, BODY_FILAMENT } from "../printer";
 
 /**
  * The system process preset. The 1.12 mm floor is 4 layers of 0.28 mm.
@@ -68,19 +69,17 @@ export function boxName(spec: BoxSpec) {
   return `kallas-box-${spec.wall}mm-wall-${spec.height}mm${spec.sandwich ? "-sandwich" : ""}${spec.count === 2 ? "-x2" : ""}`;
 }
 
-/** Render the box and write the project. With the sandwich wall, each box carries its own print settings. */
-export async function makeBoxProject(spec: BoxSpec): Promise<{ name: string; file: Uint8Array; seconds: number }> {
+/** Render the box and place it. With the sandwich wall, each box carries its own print settings. */
+export async function buildBox(spec: BoxSpec): Promise<Build> {
   const name = boxName(spec);
   const result = await render(pool, { file: "kallas-box.scad", defines: defines(spec, "box"), output: "stl" });
   const mesh = readStl("kallas-box", result.data);
-  const project = new BambuProject({ bedSize: [BED, BED], printerSettingsId: PRINTER,
-                                     printSettingsId: PROCESS, filaments: [BODY_FILAMENT] });
-  const plate = project.addPlate(name);
   const w = mesh.max[0] - mesh.min[0], d = mesh.max[1] - mesh.min[1];
   // Keep clear of the P1S keep-out area in the front left corner of the bed
   const x0 = Math.max((BED - spec.count * w - (spec.count - 1) * GAP) / 2, KEEP_OUT_X), y0 = (BED - d) / 2;
-  for (let i = 0; i < spec.count; i++) {
-    plate.addMesh(mesh, { position: [x0 + i * (w + GAP), y0], settings: spec.sandwich ? SANDWICH : {} });
-  }
-  return { name, file: project.save(), seconds: result.ms.run / 1000 };
+  const objects = Array.from({ length: spec.count }, (_, i) => ({
+    parts: [{ mesh, extruder: 1 }], position: [x0 + i * (w + GAP), y0] as [number, number],
+    settings: spec.sandwich ? SANDWICH : undefined,
+  }));
+  return { name, plates: [{ name, objects }], filaments: [BODY_FILAMENT], printSettingsId: PROCESS, draft: false };
 }

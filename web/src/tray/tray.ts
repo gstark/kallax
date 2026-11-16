@@ -1,9 +1,10 @@
 // The parts tray: its spec, the model query, and the Bambu Studio project.
 // This follows tray_model.py. All sizes come from parts-tray.scad.
 
-import { BambuProject, readStl, type Mesh } from "../bambu3mf";
+import { readStl, type Mesh } from "../bambu3mf";
+import { DRAFT, type Build, type Plate } from "../build";
 import { ModelError, pool, render } from "../openscad";
-import { BED, BODY_FILAMENT, PRINTER, TEXT_FILAMENT } from "../printer";
+import { BED, BODY_FILAMENT, TEXT_FILAMENT } from "../printer";
 
 export const LENGTHS = ["full", "half", "quarter"] as const;
 export const WIDTHS = ["full", "half"] as const;
@@ -152,23 +153,24 @@ function guidedLabels(spec: TraySpec, info: TrayInfo): string[] {
 export type Progress = (step: { part: string; done: boolean; seconds?: number }) => void;
 
 /**
- * Render every part and write the Bambu Studio project.
- * Plate 1 has the body and the lid. The lid text uses filament 2. Plate 2 has the slide-in labels.
+ * Render every part and place it. Plate 1 has the body and the lid. The lid text
+ * uses filament 2. Plate 2 has the slide-in labels. A draft has coarse curves.
  */
-export async function makeProject(spec: TraySpec, progress: Progress): Promise<{ name: string; file: Uint8Array }> {
+export async function buildTray(spec: TraySpec, { draft = false, progress = () => {} }: { draft?: boolean; progress?: Progress } = {}): Promise<Build> {
   const name = spec.name || autoName(spec);
   const info = await inspect(spec);
   const labels = guidedLabels(spec, info);
   const lidText = Boolean(spec.title) || info.comps.some((k) => k.usable && spec.labels[key(k.col, k.row)]);
+  const quality = draft ? DRAFT : {};
 
   const jobs: [string, string, Record<string, string>][] = [
-    ["body", "parts-tray.scad", defines(spec, "box")],
-    ["lid", "parts-tray.scad", defines(spec, "lid")],
+    ["body", "parts-tray.scad", { ...defines(spec, "box"), ...quality }],
+    ["lid", "parts-tray.scad", { ...defines(spec, "lid"), ...quality }],
   ];
-  if (lidText) jobs.push(["lid text", "parts-tray.scad", defines(spec, "lid_text")]);
+  if (lidText) jobs.push(["lid text", "parts-tray.scad", { ...defines(spec, "lid_text"), ...quality }]);
   if (labels.length) {
     for (const part of ["base", "text"]) {
-      jobs.push([`labels ${part}`, "labels.scad", { part: JSON.stringify(part), labels: JSON.stringify(labels) }]);
+      jobs.push([`labels ${part}`, "labels.scad", { part: JSON.stringify(part), labels: JSON.stringify(labels), ...quality }]);
     }
   }
   jobs.forEach(([part]) => progress({ part, done: false }));
@@ -183,20 +185,19 @@ export async function makeProject(spec: TraySpec, progress: Progress): Promise<{
     return m;
   };
 
-  const project = new BambuProject({ bedSize: [BED, BED], printerSettingsId: PRINTER,
-                                     filaments: lidText || labels.length ? [BODY_FILAMENT, TEXT_FILAMENT] : [BODY_FILAMENT] });
   const x0 = (BED - 2 * info.width - SPACING) / 2, y0 = (BED - info.length) / 2;
-  const plate = project.addPlate(name);
-  plate.addMesh(mesh("body"), { position: [x0, y0] });
   const lidAt: [number, number] = [x0 + info.width + SPACING, y0];
-  if (lidText) {
-    plate.addGroup([{ mesh: mesh("lid"), extruder: 1 }, { mesh: mesh("lid text"), extruder: 2 }], { position: lidAt });
-  } else {
-    plate.addMesh(mesh("lid"), { position: lidAt });
-  }
+  const plates: Plate[] = [{
+    name,
+    objects: [
+      { parts: [{ mesh: mesh("body"), extruder: 1 }], position: [x0, y0] },
+      { parts: lidText ? [{ mesh: mesh("lid"), extruder: 1 }, { mesh: mesh("lid text"), extruder: 2 }]
+                       : [{ mesh: mesh("lid"), extruder: 1 }], position: lidAt },
+    ],
+  }];
   if (labels.length) {
-    project.addPlate("Labels").addGroup([{ mesh: mesh("labels base"), extruder: 1 },
-                                         { mesh: mesh("labels text"), extruder: 2 }]);
+    plates.push({ name: "Labels", objects: [{ parts: [{ mesh: mesh("labels base"), extruder: 1 },
+                                                      { mesh: mesh("labels text"), extruder: 2 }] }] });
   }
-  return { name, file: project.save() };
+  return { name, plates, draft, filaments: lidText || labels.length ? [BODY_FILAMENT, TEXT_FILAMENT] : [BODY_FILAMENT] };
 }

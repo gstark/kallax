@@ -1,11 +1,13 @@
 // The Kallas box editor: the form, the top and front views on the mat, and Make 3MF.
 
-import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { toProject } from "../build";
 import { ModelError } from "../openscad";
+import { PreviewPane, usePreview, ViewSwitch, type View } from "../preview/Preview";
 import { download } from "../printer";
 import { Button, Choice, Millimetres, Section, Toggle } from "../ui";
 import { Workbench } from "../Workbench";
-import { boxName, inspectBox, makeBoxProject, type BoxInfo, type BoxSpec } from "./box";
+import { boxName, buildBox, inspectBox, type BoxInfo, type BoxSpec } from "./box";
 import { BoxCanvas } from "./BoxCanvas";
 
 type Make =
@@ -14,7 +16,7 @@ type Make =
   | { state: "done"; name: string; seconds: number }
   | { state: "failed"; message: string };
 
-export function BoxEditor({ spec, setSpec, nav }: { spec: BoxSpec; setSpec: Dispatch<SetStateAction<BoxSpec>>; nav: ReactNode }) {
+export function BoxEditor({ spec, setSpec }: { spec: BoxSpec; setSpec: Dispatch<SetStateAction<BoxSpec>> }) {
   const [info, setInfo] = useState<BoxInfo | null>(null);
   const [infoFor, setInfoFor] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -38,20 +40,32 @@ export function BoxEditor({ spec, setSpec, nav }: { spec: BoxSpec; setSpec: Disp
   const update = (change: Partial<BoxSpec>) => setSpec((s) => ({ ...s, ...change }));
   const busy = make.state === "running";
 
+  // The box renders in about a second, so the 3D view follows each change by itself
+  const [view, setView] = useState<View>("top");
+  const preview = usePreview(JSON.stringify(spec), () => buildBox(spec), { open: view === "3d", auto: true });
+
   const run = async () => {
     const started = performance.now();
+    const keep = preview.keep;
     setMake({ state: "running" });
     try {
-      const { name, file } = await makeBoxProject(spec);
-      download(`${name}.3mf`, file);
-      setMake({ state: "done", name: `${name}.3mf`, seconds: (performance.now() - started) / 1000 });
+      const build = await buildBox(spec);
+      keep(build);
+      download(`${build.name}.3mf`, toProject(build));
+      setMake({ state: "done", name: `${build.name}.3mf`, seconds: (performance.now() - started) / 1000 });
     } catch (failed) {
       setMake({ state: "failed", message: failed instanceof Error ? failed.message : String(failed) });
     }
   };
 
-  const mat = info ? (
+  const mat = view === "3d" ? (
     <>
+      <ViewSwitch view={view} onChange={setView} />
+      <PreviewPane preview={preview} what="the box" />
+    </>
+  ) : info ? (
+    <>
+      <ViewSwitch view={view} onChange={setView} />
       <BoxCanvas info={info} stale={stale} busy={busy} />
       {error && (
         <p role="alert" className="absolute inset-x-4 top-4 rounded-md bg-sheet px-4 py-3 text-[0.9375rem] shadow-lg lg:inset-x-auto lg:left-6 lg:max-w-md">
@@ -127,5 +141,5 @@ export function BoxEditor({ spec, setSpec, nav }: { spec: BoxSpec; setSpec: Disp
     </>
   );
 
-  return <Workbench nav={nav} busy={busy} mat={mat} panel={panel} status={status} />;
+  return <Workbench busy={busy} mat={mat} panel={panel} status={status} />;
 }

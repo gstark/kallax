@@ -1,6 +1,7 @@
 // The page: the Kallas box, and the trays that go in it. "Find a tray" loads its result into the tray editor.
+// The header stays in place across the modes, so the underline under the mode can slide to the next one.
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { DEFAULT_BOX, type BoxSpec } from "./box/box";
 import { BoxEditor } from "./box/BoxEditor";
 import type { Item } from "./fit/fit";
@@ -16,27 +17,60 @@ const MODES: { mode: Mode; text: string }[] = [
   { mode: "find", text: "Find a tray for my items" },
 ];
 
+/** The mode links, with one underline that slides to the current mode. */
+function ModeNav({ mode, onChange }: { mode: Mode; onChange(mode: Mode): void }) {
+  const nav = useRef<HTMLElement>(null);
+  const [line, setLine] = useState<{ left: number; width: number; moved: boolean } | null>(null);
+
+  // Measure the current link after each change, and again when the fonts or the window change its width
+  useLayoutEffect(() => {
+    const measure = (moved: boolean) => {
+      const link = nav.current?.querySelector<HTMLElement>("[aria-current=page]");
+      if (link) setLine((old) => ({ left: link.offsetLeft, width: link.offsetWidth, moved: moved && old !== null }));
+    };
+    measure(true);
+    const resize = new ResizeObserver(() => measure(false));
+    if (nav.current) resize.observe(nav.current);
+    return () => resize.disconnect();
+  }, [mode]);
+
+  return (
+    <nav ref={nav} aria-label="Mode" className="relative -mb-px flex gap-6 self-stretch">
+      {MODES.map((m) => (
+        <button key={m.mode} type="button" aria-current={mode === m.mode ? "page" : undefined} onClick={() => onChange(m.mode)}
+                className={`py-3.5 text-[0.9375rem] font-medium transition-colors ${
+                  mode === m.mode ? "text-ink" : "text-muted hover:text-ink"}`}>
+          {m.text}
+        </button>
+      ))}
+      {line && (
+        <span aria-hidden
+              className={`pointer-events-none absolute bottom-0 left-0 h-[3px] rounded-t-sm bg-ink ${
+                line.moved ? "transition-[transform,width] duration-300 ease-[cubic-bezier(0.3,0.7,0.2,1)] motion-reduce:transition-none" : ""}`}
+              style={{ width: line.width, transform: `translateX(${line.left}px)` }} />
+      )}
+    </nav>
+  );
+}
+
 export function App() {
   const [mode, setMode] = useState<Mode>("edit");
   const [spec, setSpec] = useState<TraySpec>(DEFAULT_SPEC);
   const [items, setItems] = useState<Item[]>([]);
   const [box, setBox] = useState<BoxSpec>(DEFAULT_BOX);
 
-  const nav = (
-    <nav aria-label="Mode" className="flex gap-1">
-      {MODES.map((m) => (
-        <button key={m.mode} type="button" aria-current={mode === m.mode ? "page" : undefined} onClick={() => setMode(m.mode)}
-                className={`rounded-md px-3 py-1.5 text-[0.9375rem] font-medium transition-colors ${
-                  mode === m.mode ? "bg-ink text-sheet" : "text-muted hover:bg-paper hover:text-ink"}`}>
-          {m.text}
-        </button>
-      ))}
-    </nav>
+  return (
+    <div className="flex min-h-dvh flex-col lg:h-dvh lg:min-h-0">
+      <header className="flex flex-wrap items-center gap-x-8 border-b border-rule bg-sheet px-5">
+        <h1 className="py-2.5 font-cond text-[1.75rem] font-semibold leading-none tracking-[-0.01em]">Kallas workbench</h1>
+        <ModeNav mode={mode} onChange={setMode} />
+      </header>
+      {mode === "box" && <BoxEditor spec={box} setSpec={setBox} />}
+      {mode === "edit" && <TrayEditor spec={spec} setSpec={setSpec} />}
+      {mode === "find" && (
+        <FindTray items={items} setItems={setItems}
+                  onOpen={(found) => { setSpec((s) => ({ ...found, title: s.title, name: "" })); setMode("edit"); }} />
+      )}
+    </div>
   );
-
-  if (mode === "box") return <BoxEditor spec={box} setSpec={setBox} nav={nav} />;
-  return mode === "edit"
-    ? <TrayEditor spec={spec} setSpec={setSpec} nav={nav} />
-    : <FindTray items={items} setItems={setItems} nav={nav}
-                onOpen={(found) => { setSpec((s) => ({ ...found, title: s.title, name: "" })); setMode("edit"); }} />;
 }

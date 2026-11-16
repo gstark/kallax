@@ -1,13 +1,15 @@
 // The tray editor: the form, the mat with the compartments, and Make 3MF.
 
-import { useEffect, useRef, useState, type Dispatch, type KeyboardEvent, type ReactNode, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
+import { toProject } from "../build";
 import { ModelError } from "../openscad";
+import { PreviewPane, usePreview, ViewSwitch, type View } from "../preview/Preview";
 import { download } from "../printer";
 import { Button, Choice, Field, Section, Stepper, Toggle, inputClass } from "../ui";
 import { Workbench } from "../Workbench";
 import { TrayCanvas, type Unit } from "./TrayCanvas";
 import {
-  COLS, HEIGHTS, ROWS, autoName, compAt, inspect, key, makeProject, merge, split, tidyLabels,
+  COLS, HEIGHTS, ROWS, autoName, buildTray, compAt, inspect, key, merge, split, tidyLabels,
   type Block, type Length, type TrayInfo, type TraySpec, type Width,
 } from "./tray";
 
@@ -20,7 +22,7 @@ type Make =
 /** The fields that change the geometry. Labels, the title, and the name do not need a new query. */
 const shape = (s: TraySpec) => JSON.stringify([s.length, s.width, s.height, s.cols, s.rows, s.merges, s.pull, s.guides]);
 
-export function TrayEditor({ spec, setSpec, nav }: { spec: TraySpec; setSpec: Dispatch<SetStateAction<TraySpec>>; nav: ReactNode }) {
+export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatch<SetStateAction<TraySpec>> }) {
   const [info, setInfo] = useState<TrayInfo | null>(null);
   const [infoShape, setInfoShape] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -122,16 +124,23 @@ export function TrayEditor({ spec, setSpec, nav }: { spec: TraySpec; setSpec: Di
     setCursor(unit);
   };
 
+  // The 3D preview: a draft on request. Make 3MF replaces it with the final parts.
+  const [view, setView] = useState<View>("top");
+  const preview = usePreview(JSON.stringify({ ...spec, name: "" }), () => buildTray(spec, { draft: true }),
+                             { open: view === "3d", auto: false });
+
   const run = async () => {
     const started = performance.now();
+    const keep = preview.keep;
     setMake({ state: "running", steps: [], started });
     try {
-      const { name, file } = await makeProject(spec, ({ part, done, seconds }) =>
+      const build = await buildTray(spec, { progress: ({ part, done, seconds }) =>
         setMake((m) => m.state !== "running" ? m : {
           ...m, steps: done ? m.steps.map((s) => s.part === part ? { part, seconds } : s) : [...m.steps, { part }],
-        }));
-      download(`${name}.3mf`, file);
-      setMake({ state: "done", name: `${name}.3mf`, seconds: (performance.now() - started) / 1000 });
+        }) });
+      keep(build);
+      download(`${build.name}.3mf`, toProject(build));
+      setMake({ state: "done", name: `${build.name}.3mf`, seconds: (performance.now() - started) / 1000 });
     } catch (failed) {
       setMake({ state: "failed", message: failed instanceof Error ? failed.message : String(failed) });
     }
@@ -145,8 +154,9 @@ export function TrayEditor({ spec, setSpec, nav }: { spec: TraySpec; setSpec: Di
   const customHeight = !HEIGHTS.includes(spec.height);
 
   return (
-    <Workbench nav={nav} busy={busy} mat={<>
-        {info ? (
+    <Workbench busy={busy} mat={<>
+        <ViewSwitch view={view} onChange={setView} />
+        {view === "3d" ? <PreviewPane preview={preview} what="a draft of the tray" /> : info ? (
           <TrayCanvas spec={spec} info={info} cursor={cursor} selection={selection} selecting={Boolean(anchor)} stale={stale} busy={busy}
                       onPick={onPick} onKey={onKey} />
         ) : (

@@ -60,10 +60,9 @@ function Question({ title, children, onBack }: { title: string; children: ReactN
   );
 }
 
-export function FindTray({ items, setItems, nav, onOpen }: {
+export function FindTray({ items, setItems, onOpen }: {
   items: Item[];
   setItems: Dispatch<SetStateAction<Item[]>>;
-  nav: ReactNode;
   onOpen(spec: TraySpec): void;
 }) {
   const [step, setStep] = useState<Step>(items.length ? "more" : "name");
@@ -283,5 +282,5 @@ export function FindTray({ items, setItems, nav, onOpen }: {
     </>
   );
 
-  return <Workbench nav={nav} busy={step === "searching"} mat={mat} panel={panel} status={status} />;
+  return <Workbench busy={step === "searching"} mat={mat} panel={panel} status={status} />;
 }
