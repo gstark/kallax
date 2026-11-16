@@ -36,7 +36,7 @@ Trays and small boxes use a grid of 4 × 10 cells of 24 × 24.6 mm. Heights of 2
 
 ## The web workbench
 
-The workbench in `web/` runs fully in the browser. OpenSCAD runs as WebAssembly in
+Use it at <https://gstark.com/kallax/>. The workbench in `web/` runs fully in the browser. OpenSCAD runs as WebAssembly in
 web workers, and the page writes the Bambu Studio project. It has three modes:
 
 - **Box.** Set the wall, the height, and the finger cutout. The project uses the
@@ -75,6 +75,17 @@ pnpm dev      # starts the workbench at http://localhost:5173
 | `pnpm libs` | Packs BOSL2 and the label font into `public/`. |
 | `pnpm openscad <version>` | Replaces the OpenSCAD WebAssembly build with a snapshot from files.openscad.org. Update `public/openscad/NOTICE` after a change. |
 | `pnpm typeface` | Converts Barlow Condensed SemiBold for the 3D text in the preview. |
+
+### Deploy
+
+The workflow in `.github/workflows/pages.yml` publishes the workbench on GitHub
+Pages after each push to `main` that changes `web/` or `models/`. You can also start
+it by hand on the Actions tab. It builds with the BOSL2 commit in `BOSL2_REF` and
+with Liberation Sans from Ubuntu. Set `BASE_PATH` to build for a site under a path:
+
+```sh
+BASE_PATH=/kallax/ pnpm build
+```
 
 ## The CLI
 

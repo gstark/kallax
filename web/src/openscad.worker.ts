@@ -39,7 +39,8 @@ let ready: Promise<{ factory: Factory; wasm: WebAssembly.Module; bosl2: Record<s
 
 function load() {
   ready ??= (async () => {
-    const base = new URL("/", self.location.href);
+    // The site can live under a path, such as /kallax/ on GitHub Pages
+    const base = new URL(import.meta.env.BASE_URL, self.location.origin);
     const [mod, wasm, bosl2, font] = await Promise.all([
       import(/* @vite-ignore */ new URL("openscad/openscad.js", base).href),
       WebAssembly.compileStreaming(fetch(new URL("openscad/openscad.wasm", base))),

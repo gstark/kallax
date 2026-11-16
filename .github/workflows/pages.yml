@@ -1,0 +1,73 @@
+# Build the web workbench and publish it on GitHub Pages.
+# The site lives at https://<owner>.github.io/<repo>/, so the build uses that path as its base.
+name: Deploy the web workbench
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", "models/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. A newer push waits; it does not cancel a deployment in progress.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # The BOSL2 commit that the models are tested with. Update it with the local copy.
+  BOSL2_REF: 556023bf7e540aae9f44b29bf00dd2ce3b8af02e
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # pnpm libs packs BOSL2 and the label font into web/public. Neither is in git.
+      - name: Get BOSL2
+        uses: actions/checkout@v7
+        with:
+          repository: BelfrySCAD/BOSL2
+          ref: ${{ env.BOSL2_REF }}
+          path: bosl2
+      - name: Get Liberation Sans
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-liberation2
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.1.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build
+        working-directory: web
+        env:
+          BOSL2: ${{ github.workspace }}/bosl2
+          FONT: /usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf
+          BASE_PATH: /${{ github.event.repository.name }}/
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm libs
+          pnpm build
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
