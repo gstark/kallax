@@ -3,9 +3,11 @@
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { Build } from "../build";
+import type { Block } from "./PlateView";
 
 // three.js is large. It loads the first time someone opens the 3D view.
 const PlateView = lazy(() => import("./PlateView"));
+const PendingView = lazy(() => import("./PendingView"));
 
 export type View = "top" | "3d";
 
@@ -73,28 +75,39 @@ export function usePreview(key: string, make: () => Promise<Build>, { open, auto
 
 const banner = "absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-3 rounded-md bg-sheet px-4 py-2 text-[0.875rem] shadow-lg";
 
-export function PreviewPane({ preview, what }: { preview: ReturnType<typeof usePreview>; what: string }) {
+export function PreviewPane({ preview, what, size, blocks, note }: {
+  preview: ReturnType<typeof usePreview>;
+  what: string;       // for example "a draft of the tray"
+  size: string;       // the size of the part that renders, for example "95 × 122 × 24 mm"
+  blocks?: Block[];   // drawn on plate 1 only
+  note?: string;      // in place of the usual caption
+}) {
   const [plate, setPlate] = useState(0);
   const { build, stale, running, error, run } = preview;
   const plates = build?.plates ?? [];
   const shown = plates[Math.min(plate, plates.length - 1)];
+  // A slow draft does not show the old part while the new one renders: the 3D text takes its place.
+  // A fast render, such as the box, keeps the old part on screen for its second of work.
+  const pending = !error && (!build || (running && stale && build.draft));
+  const loading = <p className="grid h-full place-items-center font-cond text-[1.25rem] text-mat-ink">Loading the 3D view</p>;
 
   return (
     <div className="relative h-full w-full">
-      {shown ? (
-        <Suspense fallback={<p className="grid h-full place-items-center font-cond text-[1.25rem] text-mat-ink">Loading the 3D view</p>}>
-          <PlateView plate={shown} />
+      {pending ? (
+        <Suspense fallback={loading}>
+          <PendingView title={size} detail={`Rendering ${what}`} />
         </Suspense>
-      ) : (
-        <p className="grid h-full place-items-center px-6 text-center font-cond text-[1.25rem] text-mat-ink">
-          {error ? "" : `Rendering ${what} for the preview`}
-        </p>
-      )}
+      ) : shown ? (
+        <Suspense fallback={loading}>
+          <PlateView plate={shown} blocks={shown === plates[0] ? blocks : undefined} />
+        </Suspense>
+      ) : null}
+      {pending && <p className="sr-only" aria-live="polite">Rendering {what}</p>}
 
       {error && (
         <p role="alert" className={banner}><span className="font-semibold text-fault">The preview failed.</span> {error}</p>
       )}
-      {!error && build && (running || stale) && (
+      {!error && !pending && build && (running || stale) && (
         <p className={banner} aria-live="polite">
           {running ? <span>Updating the preview</span> : (
             <>
@@ -105,7 +118,7 @@ export function PreviewPane({ preview, what }: { preview: ReturnType<typeof useP
         </p>
       )}
 
-      {plates.length > 1 && (
+      {!pending && plates.length > 1 && (
         <div role="group" aria-label="Plate" className="absolute bottom-4 left-4 z-10 flex gap-px overflow-hidden rounded-md bg-mat-line/60 p-px">
           {plates.map((p, i) => (
             <button key={i} type="button" aria-pressed={i === plate} onClick={() => setPlate(i)}
@@ -116,9 +129,9 @@ export function PreviewPane({ preview, what }: { preview: ReturnType<typeof useP
         </div>
       )}
 
-      {build && (
+      {build && !pending && (
         <p className="pointer-events-none absolute bottom-4 right-4 z-10 max-w-xs text-right font-cond text-[0.9375rem] text-mat-ink/85">
-          {build.draft ? "Draft with coarse curves. Make 3MF shows the final parts." : "The parts as they print."}
+          {note ?? (build.draft ? "Draft with coarse curves. Make 3MF shows the final parts." : "The parts as they print.")}
           <span className="block text-[0.8125rem] opacity-80">Drag to turn. Scroll to zoom.</span>
         </p>
       )}

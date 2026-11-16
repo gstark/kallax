@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "openscad": "./scripts/openscad.sh"
+    "openscad": "./scripts/openscad.sh",
+    "typeface": "node scripts/typeface.mjs"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",
@@ -15,6 +16,7 @@
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "opentype.js": "^2.0.0",
     "tailwindcss": "^4.3.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"

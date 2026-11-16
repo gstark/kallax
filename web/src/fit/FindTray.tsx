@@ -1,12 +1,17 @@
 // Find a tray: questions about the items, one at a time. Then the smallest
 // trays that hold them, drawn on the mat with each item in its compartment.
 
-import { useEffect, useRef, useState, type Dispatch, type KeyboardEvent, type ReactNode, type SetStateAction } from "react";
-import { HEIGHTS, type TraySpec } from "../tray/tray";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type ReactNode, type SetStateAction } from "react";
+import { placeOnBed } from "../bambu3mf";
+import type { Build } from "../build";
+import type { Block } from "../preview/PlateView";
+import { PreviewPane, usePreview, ViewSwitch, type View } from "../preview/Preview";
+import { BED } from "../printer";
+import { HEIGHTS, buildTray, compAt, type TraySpec } from "../tray/tray";
 import { TrayCanvas, type Mark } from "../tray/TrayCanvas";
 import { Button, Section, inputClass } from "../ui";
 import { Workbench } from "../Workbench";
-import { LETTERS, find, type Found, type Item } from "./fit";
+import { FILL, LETTERS, find, type Found, type Item } from "./fit";
 import { ItemsMat } from "./ItemsMat";
 
 type Step = "name" | "size" | "count" | "loose" | "more" | "heights" | "searching" | "results";
@@ -40,12 +45,43 @@ function title(f: Found) {
   };
 }
 
+/**
+ * The items as blocks in the 3D view, each in its compartment on the tray body.
+ * A loose item is a pile: it fills the compartment to the height of its volume.
+ */
+function itemBlocks(found: Found, items: Item[], build: Build): Block[] {
+  const body = build.plates[0]?.objects[0];
+  const mesh = body?.parts[0]?.mesh;
+  if (!body || !mesh) return [];
+  const [tx, ty] = placeOnBed([mesh], body.position, [BED, BED]);
+  const { info } = found;
+  const floor = mesh.max[2] - info.depth;
+  return found.plan.places.flatMap((p) => {
+    const comp = compAt(info, p.col, p.row);
+    if (!comp) return [];
+    const item = items[p.item];
+    // The compartment, in tray coordinates. The back wall sets its position, as in parts-tray.scad.
+    const x0 = -info.width / 2 + info.wall + comp.col * (info.unitW + info.divider);
+    const back = -info.length / 2 + info.wall + (comp.row + comp.rows) * (info.unitL + info.divider) - info.divider;
+    const cx = tx + x0 + comp.width / 2, cy = ty + back - comp.length / 2;
+    if (item.loose) {
+      const w = comp.width - 3, l = comp.length - 3;
+      const h = Math.min(info.depth - 0.5, (item.count * item.w * item.l * item.h) / FILL / (w * l));
+      return [{ center: [cx, cy, floor + h / 2], size: [w, l, h] }];
+    }
+    const along = (item.l >= item.w) === (comp.length >= comp.width);
+    const w = along ? item.w : item.l, l = along ? item.l : item.w;
+    return [{ center: [cx, cy, floor + item.h / 2], size: [w, l, item.h] }];
+  });
+}
+
 function Question({ title, children, onBack }: { title: string; children: ReactNode; onBack?: () => void }) {
   const heading = useRef<HTMLHeadingElement>(null);
-  // Move the focus to each new question, so a keyboard user can answer at once
+  // Move the focus to each new question, and select the answer in it, so typing replaces it at once
   useEffect(() => {
     const field = heading.current?.parentElement?.querySelector<HTMLElement>("input, button[data-first]");
     field?.focus();
+    if (field instanceof HTMLInputElement) field.select();
   }, [title]);
   return (
     <section className="border-t border-rule px-5 py-5">
@@ -113,9 +149,22 @@ export function FindTray({ items, setItems, onOpen }: {
     note: items[p.item].loose ? `${items[p.item].count}, loose` : undefined,
   })) : [];
 
-  const mat = step === "results" && best
-    ? <TrayCanvas spec={best.spec} info={best.info} marks={marks} label={`The ${title(best).size} tray, with each item in its compartment`} />
-    : <ItemsMat items={items} draft={preview} />;
+  // The 3D view of the proposed tray. It renders again by itself when another tray is chosen.
+  const [view, setView] = useState<View>("3d");
+  const tray3d = usePreview(best ? JSON.stringify(best.spec) : "", () => (best ? buildTray(best.spec, { draft: true }) : Promise.reject(new Error("No tray"))),
+                            { open: step === "results" && Boolean(best) && view === "3d", auto: true });
+  const blocks = useMemo(() => (best && tray3d.build && !tray3d.stale ? itemBlocks(best, items, tray3d.build) : []),
+                         [best, items, tray3d.build, tray3d.stale]);
+
+  const mat = step === "results" && best ? (
+    <>
+      <ViewSwitch view={view} onChange={setView} />
+      {view === "3d"
+        ? <PreviewPane preview={tray3d} what="a draft of the tray" size={title(best).size} blocks={blocks}
+                       note="Draft with coarse curves. Yellow blocks are your items at true size." />
+        : <TrayCanvas spec={best.spec} info={best.info} marks={marks} label={`The ${title(best).size} tray, with each item in its compartment`} />}
+    </>
+  ) : <ItemsMat items={items} draft={preview} />;
 
   const panel = (
     <>

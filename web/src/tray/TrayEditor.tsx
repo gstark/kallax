@@ -125,7 +125,7 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
   };
 
   // The 3D preview: a draft on request. Make 3MF replaces it with the final parts.
-  const [view, setView] = useState<View>("top");
+  const [view, setView] = useState<View>("3d");
   const preview = usePreview(JSON.stringify({ ...spec, name: "" }), () => buildTray(spec, { draft: true }),
                              { open: view === "3d", auto: false });
 
@@ -156,7 +156,8 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
   return (
     <Workbench busy={busy} mat={<>
         <ViewSwitch view={view} onChange={setView} />
-        {view === "3d" ? <PreviewPane preview={preview} what="a draft of the tray" /> : info ? (
+        {view === "3d" ? <PreviewPane preview={preview} what="a draft of the tray"
+                                                  size={info ? `${info.width} × ${info.length} × ${info.height} mm` : "Parts tray"} /> : info ? (
           <TrayCanvas spec={spec} info={info} cursor={cursor} selection={selection} selecting={Boolean(anchor)} stale={stale} busy={busy}
                       onPick={onPick} onKey={onKey} />
         ) : (

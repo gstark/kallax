@@ -41,7 +41,7 @@ export function BoxEditor({ spec, setSpec }: { spec: BoxSpec; setSpec: Dispatch<
   const busy = make.state === "running";
 
   // The box renders in about a second, so the 3D view follows each change by itself
-  const [view, setView] = useState<View>("top");
+  const [view, setView] = useState<View>("3d");
   const preview = usePreview(JSON.stringify(spec), () => buildBox(spec), { open: view === "3d", auto: true });
 
   const run = async () => {
@@ -61,7 +61,7 @@ export function BoxEditor({ spec, setSpec }: { spec: BoxSpec; setSpec: Dispatch<
   const mat = view === "3d" ? (
     <>
       <ViewSwitch view={view} onChange={setView} />
-      <PreviewPane preview={preview} what="the box" />
+      <PreviewPane preview={preview} what="the box" size={info ? `${info.width} × ${info.depth} × ${info.height} mm` : "Kallas box"} />
     </>
   ) : info ? (
     <>

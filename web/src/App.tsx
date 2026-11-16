@@ -35,17 +35,17 @@ function ModeNav({ mode, onChange }: { mode: Mode; onChange(mode: Mode): void })
   }, [mode]);
 
   return (
-    <nav ref={nav} aria-label="Mode" className="relative -mb-px flex gap-6 self-stretch">
+    <nav ref={nav} aria-label="Mode" className="relative flex gap-6">
       {MODES.map((m) => (
         <button key={m.mode} type="button" aria-current={mode === m.mode ? "page" : undefined} onClick={() => onChange(m.mode)}
-                className={`py-3.5 text-[0.9375rem] font-medium transition-colors ${
+                className={`pb-0.5 pt-1 text-[0.9375rem] font-medium transition-colors ${
                   mode === m.mode ? "text-ink" : "text-muted hover:text-ink"}`}>
           {m.text}
         </button>
       ))}
       {line && (
         <span aria-hidden
-              className={`pointer-events-none absolute bottom-0 left-0 h-[3px] rounded-t-sm bg-ink ${
+              className={`pointer-events-none absolute bottom-0 left-0 h-[2px] rounded-full bg-ink ${
                 line.moved ? "transition-[transform,width] duration-300 ease-[cubic-bezier(0.3,0.7,0.2,1)] motion-reduce:transition-none" : ""}`}
               style={{ width: line.width, transform: `translateX(${line.left}px)` }} />
       )}
