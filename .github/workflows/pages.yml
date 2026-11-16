@@ -36,7 +36,13 @@ jobs:
           ref: ${{ env.BOSL2_REF }}
           path: bosl2
       - name: Get Liberation Sans
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-liberation2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-liberation
+          font=$(dpkg -L fonts-liberation | grep -m1 '/LiberationSans-Bold\.ttf$' || true)
+          if [ -z "$font" ]; then echo "::error::fonts-liberation has no LiberationSans-Bold.ttf"; exit 1; fi
+          echo "Using $font"
+          echo "FONT=$font" >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v6
         with:
@@ -51,7 +57,6 @@ jobs:
         working-directory: web
         env:
           BOSL2: ${{ github.workspace }}/bosl2
-          FONT: /usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf
           BASE_PATH: /${{ github.event.repository.name }}/
         run: |
           pnpm install --frozen-lockfile

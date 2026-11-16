@@ -1,5 +1,7 @@
 # Kallax box
 
+**Use the web workbench at <https://gstark.com/kallax/>.** It runs in your browser.
+
 Printable storage for one cube of an IKEA KALLAX shelf: a box that slides into the
 cube, and parts trays and small boxes that fill the box. The models are OpenSCAD
 files. The tools write Bambu Studio projects for a Bambu Lab P1S with a 0.4 mm nozzle.
@@ -36,7 +38,7 @@ Trays and small boxes use a grid of 4 × 10 cells of 24 × 24.6 mm. Heights of 2
 
 ## The web workbench
 
-Use it at <https://gstark.com/kallax/>. The workbench in `web/` runs fully in the browser. OpenSCAD runs as WebAssembly in
+The workbench at <https://gstark.com/kallax/> runs fully in the browser. OpenSCAD runs as WebAssembly in
 web workers, and the page writes the Bambu Studio project. It has three modes:
 
 - **Box.** Set the wall, the height, and the finger cutout. The project uses the
