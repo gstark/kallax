@@ -110,7 +110,8 @@ def run(spec, part, out):
     fit = json.loads(re.search(r"^ECHO: fit_data = (.*)$", text, re.M).group(1))
     notes = re.findall(r'^ECHO: "(.*)"$', text, re.M)
     notes += [line for line in text.splitlines() if line.startswith("WARNING")]
-    keys = ("wall", "div_t", "min_cell", "cut", "pull_w0", "r_cell", "scoop_r", "groove_h", "guide_p", "guide_w")
+    keys = ("wall", "div_t", "min_cell", "cut", "pull_w0", "r_cell", "scoop_r", "groove_h", "guide_p", "guide_w",
+            "pull_d")
     return Info(*data[:7], comps=[Comp(*c) for c in data[7]], notes=notes, fit=dict(zip(keys, fit)))
 
 

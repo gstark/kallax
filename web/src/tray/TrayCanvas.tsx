@@ -1,0 +1,219 @@
+// The tray, seen from the top, at true scale on a cutting mat with a 10 mm grid.
+// SVG units are millimetres. Tray coordinates have the origin at the centre and
+// +y toward the back. SVG y goes down, so the back is at the top of the drawing.
+
+import { useRef, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { key, type Block, type Comp, type TrayInfo, type TraySpec } from "./tray";
+
+export type Unit = [number, number];   // col, row
+
+interface Props {
+  spec: TraySpec;
+  info: TrayInfo;
+  cursor: Unit;
+  selection: Block;
+  selecting: boolean; // the user is extending a selection of units
+  stale: boolean;     // the model has not answered for the newest spec yet
+  busy: boolean;      // a render is running
+  onPick(unit: Unit, extend: boolean): void;
+  onKey(event: KeyboardEvent<SVGSVGElement>): void;
+}
+
+const MARGIN = 26;        // room on the mat for the dimension lines
+const OUTLINE_R = 3.5;    // r_vert in box-params.scad
+const FLOOR_R = 4;        // r_cell in parts-tray.scad
+
+/** The rectangle of a compartment, in SVG coordinates. Follows comp_x0 and comp_y0 in parts-tray.scad. */
+function compRect(info: TrayInfo, c: Block & { width: number; length: number }) {
+  const x = -info.width / 2 + info.wall + c.col * (info.unitW + info.divider);
+  const back = -info.length / 2 + info.wall + (c.row + c.rows) * (info.unitL + info.divider) - info.divider;
+  return { x, y: -back, w: c.width, h: c.length };
+}
+
+function unitRect(info: TrayInfo, b: Block) {
+  return compRect(info, { ...b, width: b.cols * info.unitW + (b.cols - 1) * info.divider,
+                          length: b.rows * info.unitL + (b.rows - 1) * info.divider });
+}
+
+/** The tray outline with the finger pocket cut into the front. */
+function outline(info: TrayInfo) {
+  const w = info.width / 2, d = info.length / 2, r = OUTLINE_R;
+  const p = info.pocket / 2, pd = info.pocketDepth;
+  const front = p > 0
+    ? `L ${p + 1} ${d} Q ${p} ${d} ${p} ${d - 1} L ${p} ${d - pd + 3} Q ${p} ${d - pd} ${p - 3} ${d - pd} ` +
+      `L ${-p + 3} ${d - pd} Q ${-p} ${d - pd} ${-p} ${d - pd + 3} L ${-p} ${d - 1} Q ${-p} ${d} ${-p - 1} ${d} `
+    : "";
+  return `M ${-w + r} ${-d} L ${w - r} ${-d} Q ${w} ${-d} ${w} ${-d + r} L ${w} ${d - r} Q ${w} ${d} ${w - r} ${d} ` +
+         `${front}L ${-w + r} ${d} Q ${-w} ${d} ${-w} ${d - r} L ${-w} ${-d + r} Q ${-w} ${-d} ${-w + r} ${-d} Z`;
+}
+
+const fmt = (mm: number) => (Math.round(mm * 10) / 10).toString();
+
+function Dimension({ from, to, at, vertical, text }: { from: number; to: number; at: number; vertical?: boolean; text: string }) {
+  // Drafting style: extension lines, a dimension line with slash ticks, and the number on the line
+  const tick = 1.6;
+  const mid = (from + to) / 2;
+  const line = vertical
+    ? <>
+        <line x1={at} y1={from} x2={at} y2={to} />
+        <line x1={at - tick} y1={from + tick} x2={at + tick} y2={from - tick} />
+        <line x1={at - tick} y1={to + tick} x2={at + tick} y2={to - tick} />
+      </>
+    : <>
+        <line x1={from} y1={at} x2={to} y2={at} />
+        <line x1={from - tick} y1={at + tick} x2={from + tick} y2={at - tick} />
+        <line x1={to - tick} y1={at + tick} x2={to + tick} y2={at - tick} />
+      </>;
+  return (
+    <g className="stroke-mat-ink" strokeWidth={0.35}>
+      {line}
+      <text x={vertical ? at : mid} y={vertical ? mid : at} dy={vertical ? 0 : -2.2}
+            transform={vertical ? `rotate(-90 ${at} ${mid}) translate(0 -2.2)` : undefined}
+            className="fill-mat-ink font-cond" stroke="none" fontSize={5.2} fontWeight={600} textAnchor="middle">
+        {text}
+      </text>
+    </g>
+  );
+}
+
+function CompLabel({ comp, rect, label, selected }: { comp: Comp; rect: { x: number; y: number; w: number; h: number }; label?: string; selected: boolean }) {
+  const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+  const size = Math.max(2.4, Math.min(5, rect.w / 5.5, rect.h / 4));
+  const small = Math.max(1.8, Math.min(3, rect.w / 9));
+  if (!comp.usable) return null;
+  return (
+    <g className="font-cond" textAnchor="middle" pointerEvents="none">
+      {label && (
+        <text x={cx} y={cy - small * 0.3} fontSize={size} fontWeight={600} className="fill-ink">{label}</text>
+      )}
+      {rect.w > 9 && (
+        <text x={cx} y={label ? cy + size * 0.9 : cy + small * 0.35} fontSize={small} fontWeight={500}
+              className={selected ? "fill-ink" : "fill-muted"}>
+          {fmt(comp.width)} × {fmt(comp.length)}
+        </text>
+      )}
+    </g>
+  );
+}
+
+export function TrayCanvas({ spec, info, cursor, selection, selecting, stale, busy, onPick, onKey }: Props) {
+  const svg = useRef<SVGSVGElement>(null);
+  const drag = useRef<Unit | null>(null);
+  const W = info.width, D = info.length;
+
+  const unitAt = (event: PointerEvent): Unit | null => {
+    const matrix = svg.current?.getScreenCTM();
+    if (!matrix) return null;
+    const p = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    const col = Math.floor((p.x + W / 2 - info.wall) / (info.unitW + info.divider));
+    const row = Math.floor((-p.y + D / 2 - info.wall) / (info.unitL + info.divider));
+    if (p.x < -W / 2 || p.x > W / 2 || p.y < -D / 2 || p.y > D / 2) return null;
+    return [Math.min(Math.max(col, 0), spec.cols - 1), Math.min(Math.max(row, 0), spec.rows - 1)];
+  };
+
+  const sel = unitRect(info, selection);
+  const cur = unitRect(info, { col: cursor[0], row: cursor[1], cols: 1, rows: 1 });
+  const inSelection = (c: Comp) =>
+    c.col >= selection.col && c.col + c.cols <= selection.col + selection.cols &&
+    c.row >= selection.row && c.row + c.rows <= selection.row + selection.rows;
+  const many = selecting && selection.cols * selection.rows > 1;
+
+  return (
+    <svg
+      ref={svg}
+      viewBox={`${-W / 2 - MARGIN} ${-D / 2 - MARGIN} ${W + 2 * MARGIN} ${D + 2 * MARGIN}`}
+      preserveAspectRatio="xMidYMid meet"
+      className="h-full w-full touch-none select-none outline-none focus-visible:[&_.focus-ring]:opacity-100"
+      tabIndex={0}
+      role="application"
+      aria-label="Tray compartments, seen from the top. Arrow keys move. Shift and an arrow key select units. M merges, S splits, Enter edits the label."
+      onKeyDown={onKey}
+      onPointerDown={(e) => {
+        const unit = unitAt(e);
+        if (!unit) return;
+        svg.current?.setPointerCapture(e.pointerId);
+        drag.current = e.shiftKey ? cursor : unit;
+        onPick(unit, e.shiftKey);
+      }}
+      onPointerMove={(e) => {
+        if (!drag.current) return;
+        const unit = unitAt(e);
+        if (unit && (unit[0] !== cursor[0] || unit[1] !== cursor[1])) onPick(unit, true);
+      }}
+      onPointerUp={() => { drag.current = null; }}
+    >
+      <defs>
+        <pattern id="mat-10" width={10} height={10} patternUnits="userSpaceOnUse" x={-W / 2} y={-D / 2}>
+          <path d="M 10 0 L 0 0 0 10" fill="none" className="stroke-mat-line" strokeWidth={0.3} />
+        </pattern>
+        <pattern id="mat-50" width={50} height={50} patternUnits="userSpaceOnUse" x={-W / 2} y={-D / 2}>
+          <path d="M 50 0 L 0 0 0 50" fill="none" className="stroke-mat-major" strokeWidth={0.45} />
+        </pattern>
+        <pattern id="solid" width={2.2} height={2.2} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1={0} y1={0} x2={0} y2={2.2} className="stroke-pla-shade" strokeWidth={0.6} />
+        </pattern>
+        <filter id="lift" x="-10%" y="-10%" width="120%" height="120%">
+          <feDropShadow dx={0.8} dy={1.4} stdDeviation={1.1} floodColor="#0d2a21" floodOpacity={0.45} />
+        </filter>
+      </defs>
+
+      {/* The mat runs past the view in every direction */}
+      <rect x={-2000} y={-2000} width={4000} height={4000} className="fill-mat" />
+      <rect x={-2000} y={-2000} width={4000} height={4000} fill="url(#mat-10)" />
+      <rect x={-2000} y={-2000} width={4000} height={4000} fill="url(#mat-50)" />
+
+      <Dimension from={-W / 2} to={W / 2} at={-D / 2 - 11} text={fmt(W)} />
+      <Dimension from={-D / 2} to={D / 2} at={W / 2 + 11} vertical text={fmt(D)} />
+      <g className="stroke-mat-ink" strokeWidth={0.2} opacity={0.7}>
+        <line x1={-W / 2} y1={-D / 2 - 2} x2={-W / 2} y2={-D / 2 - 13} />
+        <line x1={W / 2} y1={-D / 2 - 2} x2={W / 2} y2={-D / 2 - 13} />
+        <line x1={W / 2 + 2} y1={-D / 2} x2={W / 2 + 13} y2={-D / 2} />
+        <line x1={W / 2 + 2} y1={D / 2} x2={W / 2 + 13} y2={D / 2} />
+      </g>
+
+      <g opacity={stale ? 0.55 : 1} style={{ transition: "opacity 160ms" }}>
+        <path d={outline(info)} className="fill-pla" filter="url(#lift)" />
+        {info.comps.map((c) => {
+          const r = compRect(info, c);
+          const round = Math.min(FLOOR_R, r.w / 2 - 0.1, r.h / 2 - 0.1);
+          const chosen = inSelection(c) && !stale;
+          return (
+            <g key={key(c.col, c.row)}>
+              <rect x={r.x} y={r.y} width={r.w} height={r.h} rx={round}
+                    className={c.usable ? (chosen ? "fill-signal-wash" : "fill-pla-floor") : "fill-pla"}
+                    fill={c.usable ? undefined : "url(#solid)"} />
+              {c.guided && (
+                <rect x={r.x + r.w / 2 - 11.5} y={r.y} width={23} height={2.3} rx={1}
+                      className="fill-pla-shade" />
+              )}
+              <CompLabel comp={c} rect={r} label={spec.labels[key(c.col, c.row)]} selected={chosen} />
+            </g>
+          );
+        })}
+        {!stale && (
+          <>
+            <rect x={sel.x - 0.6} y={sel.y - 0.6} width={sel.w + 1.2} height={sel.h + 1.2} rx={FLOOR_R}
+                  fill="none" className="stroke-signal" strokeWidth={many ? 1.1 : 0.9} />
+            {many && (
+              <rect x={cur.x + 1.2} y={cur.y + 1.2} width={cur.w - 2.4} height={cur.h - 2.4} rx={2.5}
+                    fill="none" className="stroke-signal" strokeWidth={0.5} strokeDasharray="1.6 1.2" />
+            )}
+          </>
+        )}
+        <rect x={-W / 2 - 4} y={-D / 2 - 4} width={W + 8} height={D + 8} rx={6} fill="none"
+              className="focus-ring stroke-signal opacity-0" strokeWidth={0.6} strokeDasharray="2 1.5" />
+      </g>
+
+      {busy && (
+        <g className="nozzle" style={{ "--travel": `${D}px` } as CSSProperties}>
+          <line x1={-W / 2 - 6} y1={-D / 2} x2={W / 2 + 6} y2={-D / 2} className="stroke-signal" strokeWidth={0.7} />
+          <circle cx={W / 2 + 6} cy={-D / 2} r={1.6} className="fill-signal" />
+        </g>
+      )}
+
+      <text x={-W / 2} y={D / 2 + 10} className="fill-mat-ink font-cond" fontSize={4} fontWeight={500} opacity={0.8}>
+        Front{info.pocket ? ", with the finger pocket" : ""}
+      </text>
+    </svg>
+  );
+}

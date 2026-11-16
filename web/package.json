@@ -1,0 +1,28 @@
+{
+  "name": "kallas-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "libs": "./scripts/libs.sh",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "openscad": "./scripts/openscad.sh"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "dependencies": {
+    "@fontsource/barlow": "^5.3.0",
+    "@fontsource/barlow-condensed": "^5.3.0",
+    "fflate": "^0.8.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}

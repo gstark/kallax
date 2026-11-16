@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@theme {
+  /* The cutting mat */
+  --color-mat: #2e5e4e;
+  --color-mat-line: #4a7f6f;
+  --color-mat-major: #6c9c89;
+  --color-mat-ink: #e6f0dc;
+  /* Matte PLA */
+  --color-pla: #fafaf7;
+  --color-pla-floor: #e8ebe4;
+  --color-pla-shade: #c9cfc6;
+  /* The controls */
+  --color-paper: #eef0eb;
+  --color-sheet: #f7f8f4;
+  --color-ink: #1f2724;
+  --color-muted: #5e6a65;
+  --color-rule: #cdd3cc;
+  /* The selection, like the marks on a cutting mat */
+  --color-signal: #f2c230;
+  --color-signal-wash: #fbefc4;
+  --color-fault: #a8322a;
+
+  --font-sans: "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --font-cond: "Barlow Condensed", "Barlow", ui-sans-serif, sans-serif;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-feature-settings: "tnum" 1;
+    color: var(--color-ink);
+    background: var(--color-paper);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+  }
+}
+
+/* While a render runs, a nozzle line passes over the drawing, back to front. */
+@keyframes nozzle {
+  from { transform: translateY(0); }
+  to { transform: translateY(var(--travel)); }
+}
+.nozzle {
+  animation: nozzle 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nozzle { animation: none; opacity: 0; }
+}
