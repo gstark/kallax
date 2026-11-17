@@ -25,6 +25,7 @@ export interface Item {
   h: number;
   count: number;
   loose: boolean;   // all of them in one compartment, in a pile
+  off?: boolean;    // the user turned it off: the search leaves it out
 }
 
 /** An item in a compartment: item index, front left unit, and units wide and long. */
@@ -254,18 +255,41 @@ async function check(plan: Plan, items: Item[], pull: boolean, guides: boolean):
   return { plan, spec, info };
 }
 
-const pause = () => new Promise((resolve) => setTimeout(resolve, 0));
+const pause = (signal?: AbortSignal) => new Promise<void>((resolve, reject) => setTimeout(() => {
+  if (signal?.aborted) reject(signal.reason);
+  else resolve();
+}, 0));
+
+// The model sizes of the empty trays. They do not change, so the page asks the model once for each.
+const bases = new Map<string, Promise<TrayInfo>>();
+function base(length: Length, width: Width, height: number, pull: boolean, guides: boolean): Promise<TrayInfo> {
+  const id = `${length},${width},${height},${pull},${guides}`;
+  let info = bases.get(id);
+  if (!info) {
+    info = inspect({ length, width, height, cols: 1, rows: 1, merges: [], pull, guides, labels: {}, title: "", name: "" });
+    info.catch(() => bases.delete(id));
+    bases.set(id, info);
+  }
+  return info;
+}
+
+interface Options {
+  pull?: boolean;
+  guides?: boolean;
+  heights?: number[];
+  show?: number;
+  signal?: AbortSignal;
+}
 
 /** The smallest trays that hold the items, smallest first. The model checked each one. */
-export async function find(items: Item[], { pull = true, guides = true, heights = HEIGHTS, show = 3 } = {}): Promise<Found[]> {
+export async function find(items: Item[], { pull = true, guides = true, heights = HEIGHTS, show = 3, signal }: Options = {}): Promise<Found[]> {
   const sizes = LENGTHS.flatMap((length) => WIDTHS.flatMap((width) => heights.map((height) => ({ length, width, height }))));
-  const infos = await Promise.all(sizes.map((s) =>
-    inspect({ ...s, cols: 1, rows: 1, merges: [], pull, guides, labels: {}, title: "", name: "" })));
+  const infos = await Promise.all(sizes.map((s) => base(s.length, s.width, s.height, pull, guides)));
   const plans: Plan[] = [];
   for (const [i, s] of sizes.entries()) {
     const plan = bestPlan(infos[i], s.length, s.width, items, pull);
     if (plan) plans.push(plan);
-    await pause();   // keep the page responsive between tray sizes
+    await pause(signal);   // keep the page responsive between tray sizes
   }
   // A taller tray of the same size is worse
   const lowest = new Map<string, Plan>();
@@ -275,8 +299,68 @@ export async function find(items: Item[], { pull = true, guides = true, heights 
   const found: Found[] = [];
   for (const plan of [...lowest.values()].sort((a, b) => a.volume - b.volume)) {
     const result = await check(plan, items, pull, guides);
+    signal?.throwIfAborted();
     if (result) found.push(result);
     if (found.length === show) break;
   }
   return found;
+}
+
+/** True if some grid of the tray holds the items. It stops at the first grid that packs. */
+function holds(info: TrayInfo, items: Item[], pull: boolean) {
+  for (let cols = 1; cols <= MAX_GRID; cols++) {
+    for (let rows = 1; rows <= MAX_GRID; rows++) {
+      const grid = new Grid(info, cols, rows, pull);
+      if (grid.valid() && pack(items, grid)) return true;
+    }
+  }
+  return false;
+}
+
+/** About how much floor an item needs, mm². It sets the order in which the best fit tries the items. */
+function floorArea(item: Item, depth: number) {
+  const [, mid, high] = [item.w, item.l, item.h].sort((a, b) => a - b);
+  const one = (mid + CLEARANCE) * (high + CLEARANCE);
+  return item.loose ? Math.max(one, (item.count * item.w * item.l * item.h) / FILL / depth) : item.count * one;
+}
+
+export interface Fit {
+  picked: number[];   // indices of the items in the trays, in list order
+  found: Found[];     // the smallest trays that hold the picked items, smallest first
+  tooBig: number[];   // indices of the items that no tray holds, even alone
+}
+
+/**
+ * The most items that one tray holds, and the smallest trays for them. Each item
+ * goes in whole, with all of its count. The search adds the items from the
+ * smallest to the largest, and keeps each one that still lets the largest tray
+ * pack the set. Then it finds the smallest trays for the set.
+ */
+export async function bestFit(items: Item[], options: Options = {}): Promise<Fit> {
+  const { pull = true, guides = true, heights = HEIGHTS, signal } = options;
+  if (!items.length || !heights.length) return { picked: [], found: [], tooBig: [] };
+  const largest = await base(LENGTHS[0], WIDTHS[0], Math.max(...heights), pull, guides);
+  const pick = (list: number[]) => list.map((i) => items[i]);
+  const all = items.map((_, i) => i);
+  let picked: number[] = [];
+  let tooBig: number[] = [];
+  if (holds(largest, items, pull)) {
+    picked = all;
+  } else {
+    tooBig = all.filter((i) => !holds(largest, [items[i]], pull));
+    const order = all.filter((i) => !tooBig.includes(i)).sort((a, b) => floorArea(items[a], largest.depth) - floorArea(items[b], largest.depth));
+    for (const i of order) {
+      await pause(signal);
+      if (holds(largest, pick([...picked, i]), pull)) picked.push(i);
+    }
+    picked.sort((a, b) => a - b);
+  }
+  // The model can reject the packer's trays. Then the largest item that went in last comes out again.
+  while (picked.length) {
+    const found = await find(pick(picked), options);
+    if (found.length) return { picked, found, tooBig };
+    const last = picked.reduce((a, b) => (floorArea(items[a], largest.depth) >= floorArea(items[b], largest.depth) ? a : b));
+    picked = picked.filter((i) => i !== last);
+  }
+  return { picked, found: [], tooBig };
 }

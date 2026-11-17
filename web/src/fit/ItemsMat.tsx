@@ -1,5 +1,5 @@
 // The items, laid out at true size on the mat, seen from the top.
-// The item that the questions are about has a yellow outline.
+// The item that the questions are about has a yellow outline. Items that are off are faint.
 
 import { Mat } from "../mat";
 import { LETTERS, type Item } from "./fit";
@@ -57,7 +57,7 @@ export function ItemsMat({ items, draft }: { items: Item[]; draft: Item | null }
         const size = Math.max(4, Math.min(12, b.w / 3, b.l / 2));
         const count = b.item.loose ? `${b.item.count}, loose` : b.item.count > 1 ? `× ${b.item.count}` : "";
         return (
-          <g key={`${b.letter}-${b.draft}`}>
+          <g key={`${b.letter}-${b.draft}`} opacity={b.item.off ? 0.35 : undefined}>
             <rect x={b.x} y={b.y} width={b.w} height={b.l} rx={1.5} filter="url(#lift)"
                   className={b.draft ? "fill-signal-wash stroke-signal" : "fill-pla stroke-pla-shade"} strokeWidth={b.draft ? 0.8 : 0.4} />
             {b.item.loose && b.item.count > 1 && (

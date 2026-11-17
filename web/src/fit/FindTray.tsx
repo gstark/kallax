@@ -1,5 +1,6 @@
-// Find a tray: questions about the items, one at a time. Then the smallest
-// trays that hold them, drawn on the mat with each item in its compartment.
+// Find a tray: questions about the items, one at a time. After each change, the
+// best fit: the tray that holds the most of the items that are on. The user turns
+// items on and off to try other sets, and opens a set in the tray editor.
 
 import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type ReactNode, type SetStateAction } from "react";
 import { placeOnBed } from "../bambu3mf";
@@ -11,10 +12,10 @@ import { HEIGHTS, buildTray, compAt, type TraySpec } from "../tray/tray";
 import { TrayCanvas, type Mark } from "../tray/TrayCanvas";
 import { Button, Section, inputClass } from "../ui";
 import { Workbench } from "../Workbench";
-import { FILL, LETTERS, find, type Found, type Item } from "./fit";
+import { FILL, LETTERS, bestFit, type Fit, type Found, type Item } from "./fit";
 import { ItemsMat } from "./ItemsMat";
 
-type Step = "name" | "size" | "count" | "loose" | "more" | "heights" | "searching" | "results";
+type Step = "list" | "name" | "size" | "count" | "loose";
 
 interface Draft {
   name: string;
@@ -96,44 +97,71 @@ function Question({ title, children, onBack }: { title: string; children: ReactN
   );
 }
 
+/** A best fit, and the list positions of the items that it searched. */
+interface Result {
+  key: string;
+  on: number[];    // list index of each searched item
+  items: Item[];   // the searched items
+  fit: Fit;
+}
+
+const WAIT = 250;   // ms after the last change before a new search starts
+
+function names(letters: string[]) {
+  return letters.length < 2 ? letters.join("") : `${letters.slice(0, -1).join(", ")} and ${letters.at(-1)}`;
+}
+
 export function FindTray({ items, setItems, onOpen }: {
   items: Item[];
   setItems: Dispatch<SetStateAction<Item[]>>;
   onOpen(spec: TraySpec): void;
 }) {
-  const [step, setStep] = useState<Step>(items.length ? "more" : "name");
+  const [step, setStep] = useState<Step>(items.length ? "list" : "name");
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [heights, setHeights] = useState<number[]>([]);   // empty: any height
-  const [found, setFound] = useState<Found[]>([]);
+  const [result, setResult] = useState<Result | null>(null);
   const [chosen, setChosen] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
 
   const set = (change: Partial<Draft>) => setDraft((d) => ({ ...d, ...change }));
-  const preview = step === "size" || step === "count" || step === "loose" ? toItem(draft) : null;
+  const adding = step === "size" || step === "count" || step === "loose";
+  const preview = adding ? toItem(draft) : null;
   const sizeOk = toItem(draft) !== null;
   const count = Number.parseInt(draft.count, 10);
+
+  // The search input: the items that are on, without the on and off state
+  const on = items.flatMap((it, i) => (it.off ? [] : [i]));
+  const searched = on.map((i) => { const { off: _, ...item } = items[i]; return item; });
+  const key = JSON.stringify([searched, heights]);
+  const current = result?.key === key ? result : null;
+  const error = failure?.key === key ? failure.message : null;
+  const searching = !current && !error && searched.length > 0;
+
+  // Search again after each change of the items or the heights. A newer change stops the old search.
+  useEffect(() => {
+    if (!searched.length) return;
+    const stop = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const fit = await bestFit(searched, { heights: heights.length ? heights : HEIGHTS, signal: stop.signal });
+        setResult({ key, on, items: searched, fit });
+        setChosen(0);
+      } catch (failed) {
+        if (!stop.signal.aborted) setFailure({ key, message: failed instanceof Error ? failed.message : String(failed) });
+      }
+    }, WAIT);
+    return () => { clearTimeout(timer); stop.abort(); };
+  }, [key]);   // the key holds all of the search input
 
   const add = (loose: boolean) => {
     const item = toItem(draft, loose);
     if (!item) return;
     setItems((list) => [...list, item]);
     setDraft(EMPTY);
-    setStep(items.length + 1 >= LETTERS.length ? "heights" : "more");
+    setStep("list");
   };
-
-  const search = async () => {
-    setStep("searching");
-    setError(null);
-    try {
-      const result = await find(items, { heights: heights.length ? heights : HEIGHTS });
-      setFound(result);
-      setChosen(0);
-      setStep("results");
-    } catch (failed) {
-      setError(failed instanceof Error ? failed.message : String(failed));
-      setStep("heights");
-    }
-  };
+  const setOff = (test: (i: number) => boolean | undefined) =>
+    setItems((list) => list.map((it, i) => { const off = test(i) ?? it.off; return off === Boolean(it.off) ? it : { ...it, off }; }));
 
   const enter = (next: () => void) => (e: KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -142,59 +170,86 @@ export function FindTray({ items, setItems, onOpen }: {
     }
   };
 
-  const best = found[chosen];
+  // The result on view. While a new search runs, the last result stays, dimmed.
+  const shown = result && result.fit.found.length ? result : null;
+  const best = shown?.fit.found[chosen] ?? shown?.fit.found[0];
+  const picked = shown ? shown.fit.picked.map((p) => shown.items[p]) : [];
+  const letterOf = (place: number) => (shown ? LETTERS[shown.on[shown.fit.picked[place]]] : "");
   const marks: Mark[] = best ? best.plan.places.map((p) => ({
     block: { col: p.col, row: p.row, cols: p.cols, rows: p.rows },
-    letter: LETTERS[p.item], w: items[p.item].w, l: items[p.item].l,
-    note: items[p.item].loose ? `${items[p.item].count}, loose` : undefined,
+    letter: letterOf(p.item), w: picked[p.item].w, l: picked[p.item].l,
+    note: picked[p.item].loose ? `${picked[p.item].count}, loose` : undefined,
   })) : [];
+  // List positions in the tray, and the ones that are on but do not fit, for the current result only
+  const inTray = new Set(current?.fit.picked.map((p) => current.on[p]));
+  const tooBig = new Set(current?.fit.tooBig.map((p) => current.on[p]));
+  const leftOut = current ? current.on.filter((i) => !inTray.has(i) && !tooBig.has(i)) : [];
+  const big = [...tooBig].map((i) => LETTERS[i]);
 
   // The 3D view of the proposed tray. It renders again by itself when another tray is chosen.
   const [view, setView] = useState<View>("3d");
   const tray3d = usePreview(best ? JSON.stringify(best.spec) : "", () => (best ? buildTray(best.spec, { draft: true }) : Promise.reject(new Error("No tray"))),
-                            { open: step === "results" && Boolean(best) && view === "3d", auto: true });
-  const blocks = useMemo(() => (best && tray3d.build && !tray3d.stale ? itemBlocks(best, items, tray3d.build) : []),
-                         [best, items, tray3d.build, tray3d.stale]);
+                            { open: !adding && Boolean(best) && view === "3d", auto: true });
+  const blocks = useMemo(() => (best && tray3d.build && !tray3d.stale ? itemBlocks(best, picked, tray3d.build) : []),
+                         [best, tray3d.build, tray3d.stale]);   // picked changes only with best
 
-  const mat = step === "results" && best ? (
-    <>
+  const mat = !adding && best && searched.length ? (
+    <div className={`h-full transition-opacity ${current ? "" : "opacity-60"}`}>
       <ViewSwitch view={view} onChange={setView} />
       {view === "3d"
         ? <PreviewPane preview={tray3d} what="a draft of the tray" size={title(best).size} blocks={blocks}
                        note="Draft with coarse curves. Yellow blocks are your items at true size." />
         : <TrayCanvas spec={best.spec} info={best.info} marks={marks} label={`The ${title(best).size} tray, with each item in its compartment`} />}
-    </>
+    </div>
   ) : <ItemsMat items={items} draft={preview} />;
+
+  const total = searched.length;
+  const fitted = current?.fit.picked.length ?? 0;
+  const summary = !total ? "Turn on one or more items to find a tray for them."
+    : searching ? "Looking for the tray that holds the most items."
+    : error ? `The search stopped: ${error}`
+    : fitted === 0 ? "No tray holds any of the items that are on. Allow more tray heights."
+    : [fitted === total ? (total === 1 ? "One tray holds this item." : `One tray holds all ${total} items.`)
+                        : `One tray holds ${fitted} of the ${total} items.`,
+       leftOut.length ? `${names(leftOut.map((i) => LETTERS[i]))} ${leftOut.length === 1 ? "does" : "do"} not fit with them.` : "",
+       big.length ? `${names(big)} ${big.length === 1 ? "is" : "are"} too big for any tray${heights.length ? " of these heights" : ""}.` : "",
+      ].filter(Boolean).join(" ");
 
   const panel = (
     <>
-      <Section title="Your items" aside={items.length ? `${items.reduce((n, it) => n + it.count, 0)} in all` : undefined}>
+      <Section title="Your items" aside={items.length ? `${on.length} of ${items.length} on` : undefined}>
         {items.length === 0 ? (
           <p className="text-[0.9375rem] text-muted">Answer the questions below. Each item appears on the mat at true size.</p>
         ) : (
           <ul className="-my-1 divide-y divide-rule">
-            {items.map((it, i) => (
-              <li key={i} className="flex items-center gap-3 py-2">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-ink font-cond text-[1rem] font-semibold text-sheet">
-                  {LETTERS[i]}
-                </span>
-                <span className="min-w-0 flex-1 leading-tight">
-                  <span className="block truncate text-[0.9375rem] font-medium">{it.name || "No name"}</span>
-                  <span className="block text-[0.8125rem] text-muted">{describe(it)}</span>
-                </span>
-                {step !== "searching" && (
+            {items.map((it, i) => {
+              const out = leftOut.includes(i) || tooBig.has(i);
+              return (
+                <li key={i} className="flex items-center gap-3 py-2">
+                  <input type="checkbox" checked={!it.off} aria-label={`Use ${it.name || `item ${LETTERS[i]}`}`}
+                         onChange={(e) => setOff((j) => (j === i ? !e.target.checked : undefined))}
+                         className="h-4 w-4 shrink-0 accent-ink" />
+                  <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md font-cond text-[1rem] font-semibold ${
+                    it.off ? "border border-rule text-muted" : out ? "border border-dashed border-fault text-fault" : "bg-ink text-sheet"}`}>
+                    {LETTERS[i]}
+                  </span>
+                  <span className={`min-w-0 flex-1 leading-tight ${it.off ? "opacity-50" : ""}`}>
+                    <span className="block truncate text-[0.9375rem] font-medium">{it.name || "No name"}</span>
+                    <span className="block text-[0.8125rem] text-muted">{tooBig.has(i) ? "Too big for any tray. " : out ? "Does not fit. " : ""}{describe(it)}</span>
+                  </span>
                   <button type="button" aria-label={`Remove ${it.name || `item ${LETTERS[i]}`}`}
-                          onClick={() => { setItems((list) => list.filter((_, j) => j !== i)); if (step === "results") setStep("more"); }}
+                          onClick={() => setItems((list) => list.filter((_, j) => j !== i))}
                           className="grid h-8 w-8 place-items-center rounded-md text-[1.125rem] text-muted hover:bg-white hover:text-ink">×</button>
-                )}
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
+        {step === "list" && items.length < LETTERS.length && <Button onClick={() => setStep("name")}>Add an item</Button>}
       </Section>
 
       {step === "name" && (
-        <Question title="What do you want to store?" onBack={items.length ? () => setStep("more") : undefined}>
+        <Question title="What do you want to store?" onBack={items.length ? () => setStep("list") : undefined}>
           <input className={inputClass} value={draft.name} maxLength={16} placeholder="For example WAGO 2"
                  aria-label="Name" onChange={(e) => set({ name: e.target.value })} onKeyDown={enter(() => setStep("size"))} />
           <p className="text-[0.8125rem] leading-snug text-muted">The name becomes the label of its compartments. You can leave it empty.</p>
@@ -245,63 +300,26 @@ export function FindTray({ items, setItems, onOpen }: {
         </Question>
       )}
 
-      {step === "more" && (
-        <Question title="Do you have another item to store?">
-          <div className="flex flex-wrap gap-2">
-            <button type="button" data-first onClick={() => setStep("name")}
-                    className="rounded-md border border-rule bg-sheet px-3.5 py-2 text-[0.9375rem] font-medium hover:bg-white">Add another item</button>
-            <Button primary onClick={() => setStep("heights")} disabled={!items.length}>No, find a tray</Button>
-          </div>
-        </Question>
-      )}
-
-      {step === "heights" && (
-        <Question title="Which tray heights can I use?" onBack={() => setStep("more")}>
-          <div role="group" aria-label="Tray heights" className="flex flex-wrap gap-2">
-            <button type="button" data-first aria-pressed={heights.length === 0} onClick={() => setHeights([])}
-                    className={`rounded-md px-3.5 py-2 text-[0.9375rem] font-medium ${heights.length === 0 ? "bg-ink text-sheet" : "border border-rule bg-sheet"}`}>
-              Any
-            </button>
-            {HEIGHTS.map((h) => {
-              const on = heights.includes(h);
-              return (
-                <button key={h} type="button" aria-pressed={on}
-                        onClick={() => setHeights((list) => (on ? list.filter((x) => x !== h) : [...list, h].sort((a, b) => a - b)))}
-                        className={`rounded-md px-3.5 py-2 font-cond text-[1.0625rem] font-semibold ${on ? "bg-ink text-sheet" : "border border-rule bg-sheet"}`}>
-                  {h} mm
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-[0.8125rem] leading-snug text-muted">Short trays stack, and parts are easier to reach. Tall trays hold more.</p>
-          {error && <p role="alert" className="text-[0.9375rem] text-fault">The search stopped: {error}</p>}
-          <Button primary onClick={search}>Find trays</Button>
-        </Question>
-      )}
-
-      {step === "searching" && (
-        <Question title="Looking for trays">
-          <p className="text-[0.9375rem] text-muted" aria-live="polite">
-            The packer tries every tray size and grid. Then the model checks the best ones. This takes a few seconds.
-          </p>
-        </Question>
-      )}
-
-      {step === "results" && (
-        <Question title={found.length ? "These trays hold your items" : "No single tray holds these items"}
-                  onBack={() => setStep("heights")}>
-          {found.length === 0 ? (
-            <>
-              <p className="text-[0.9375rem] leading-snug text-muted">Allow more tray heights, or split the items into two sets and find a tray for each set.</p>
-              <Button onClick={() => setStep("more")}>Change the items</Button>
-            </>
-          ) : (
+      {items.length > 0 && (
+        <Section title="Best fit">
+          <p role={error ? "alert" : undefined} aria-live="polite"
+             className={`text-[0.9375rem] leading-snug ${error ? "text-fault" : "text-muted"}`}>{summary}</p>
+          {current && leftOut.length + tooBig.size > 0 && fitted > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setOff((i) => (leftOut.includes(i) || tooBig.has(i) ? true : undefined))}
+                      title="Turn off the items that do not fit">Keep only these</Button>
+              {leftOut.length > 0 && (
+                <Button onClick={() => setOff((i) => (on.includes(i) ? !leftOut.includes(i) : undefined))}
+                        title="Turn off the items in this tray, and find a tray for the others">Try the rest</Button>
+              )}
+            </div>
+          )}
+          {current && current.fit.found.length > 0 && (
             <div role="radiogroup" aria-label="Trays" className="-mx-1 space-y-1">
-              {found.map((f, i) => {
+              {current.fit.found.map((f, i) => {
                 const t = title(f);
                 return (
-                  <button key={i} type="button" role="radio" aria-checked={i === chosen} data-first={i === 0 || undefined}
-                          onClick={() => setChosen(i)}
+                  <button key={i} type="button" role="radio" aria-checked={i === chosen} onClick={() => setChosen(i)}
                           className={`block w-full rounded-md px-3 py-2 text-left ${i === chosen ? "bg-ink text-sheet" : "hover:bg-white"}`}>
                     <span className="block font-cond text-[1.125rem] font-semibold">{t.size}</span>
                     <span className={`block text-[0.8125rem] ${i === chosen ? "text-pla-shade" : "text-muted"}`}>{t.detail}</span>
@@ -310,7 +328,29 @@ export function FindTray({ items, setItems, onOpen }: {
               })}
             </div>
           )}
-        </Question>
+        </Section>
+      )}
+
+      {items.length > 0 && (
+        <Section title="Tray heights">
+          <div role="group" aria-label="Tray heights" className="flex flex-wrap gap-2">
+            <button type="button" aria-pressed={heights.length === 0} onClick={() => setHeights([])}
+                    className={`rounded-md px-3.5 py-2 text-[0.9375rem] font-medium ${heights.length === 0 ? "bg-ink text-sheet" : "border border-rule bg-sheet"}`}>
+              Any
+            </button>
+            {HEIGHTS.map((h) => {
+              const sel = heights.includes(h);
+              return (
+                <button key={h} type="button" aria-pressed={sel}
+                        onClick={() => setHeights((list) => (sel ? list.filter((x) => x !== h) : [...list, h].sort((a, b) => a - b)))}
+                        className={`rounded-md px-3.5 py-2 font-cond text-[1.0625rem] font-semibold ${sel ? "bg-ink text-sheet" : "border border-rule bg-sheet"}`}>
+                  {h} mm
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[0.8125rem] leading-snug text-muted">Short trays stack, and parts are easier to reach. Tall trays hold more.</p>
+        </Section>
       )}
     </>
   );
@@ -318,18 +358,18 @@ export function FindTray({ items, setItems, onOpen }: {
   const status = (
     <>
       <p className="min-w-0 basis-full text-[0.9375rem] sm:basis-auto sm:flex-1">
-        {step === "results" && best ? (
+        {current && best ? (
           <><span className="font-cond text-[1.125rem] font-semibold">{title(best).size}</span>
-            <span className="text-muted"> tray. The smallest is first.</span></>
+            <span className="text-muted"> tray for {names(current.fit.picked.map((p) => LETTERS[current.on[p]]))}.</span></>
         ) : (
           <span className="text-muted">
-            {items.length ? `${items.length} ${items.length === 1 ? "item" : "items"} so far` : "Describe the items that you want to store"}
+            {searching ? "Looking for the best fit" : items.length ? `${items.length} ${items.length === 1 ? "item" : "items"}` : "Describe the items that you want to store"}
           </span>
         )}
       </p>
-      {step === "results" && best && <Button primary onClick={() => onOpen(best.spec)}>Open in the editor</Button>}
+      {current && best && <Button primary onClick={() => onOpen(best.spec)}>Open in the editor</Button>}
     </>
   );
 
-  return <Workbench busy={step === "searching"} mat={mat} panel={panel} status={status} />;
+  return <Workbench busy={searching} mat={mat} panel={panel} status={status} />;
 }
