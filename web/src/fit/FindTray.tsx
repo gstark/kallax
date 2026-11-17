@@ -33,6 +33,8 @@ function toItem(d: Draft, loose = false): Item | null {
   return w > 0 && l > 0 && h > 0 ? { name: d.name.trim(), w, l, h, count, loose } : null;
 }
 
+const toDraft = (it: Item): Draft => ({ name: it.name, w: String(it.w), l: String(it.l), h: String(it.h), count: String(it.count) });
+
 function describe(item: Item) {
   return `${item.w} × ${item.l} × ${item.h} mm${item.loose ? `, ${item.count} loose in one compartment` : item.count > 1 ? `, ${item.count} of them` : ""}`;
 }
@@ -111,6 +113,66 @@ function names(letters: string[]) {
   return letters.length < 2 ? letters.join("") : `${letters.slice(0, -1).join(", ")} and ${letters.at(-1)}`;
 }
 
+/** The fields of one item, in its row of the list. Enter saves, and Escape cancels. */
+function ItemForm({ item, onSave, onCancel, onChange }: {
+  item: Item;
+  onSave(item: Item): void;
+  onCancel(): void;
+  onChange(item: Item | null): void;   // the edited item, for the mat. Null when a size is not valid.
+}) {
+  const [draft, setDraft] = useState<Draft>(() => toDraft(item));
+  const [loose, setLoose] = useState(item.loose);
+  const count = Number.parseInt(draft.count, 10);
+  const edited = count >= 1 ? toItem(draft, loose && count > 1) : null;
+  const set = (change: Partial<Draft>) => {
+    const next = { ...draft, ...change };
+    setDraft(next);
+    onChange(toItem(next, loose && Number.parseInt(next.count, 10) > 1));
+  };
+  const save = () => edited && onSave({ ...edited, off: item.off });
+  const keys = (e: KeyboardEvent) => {
+    const typing = e.target instanceof HTMLInputElement && e.target.type !== "checkbox";
+    if (e.key === "Enter" && typing) { e.preventDefault(); save(); }
+    if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+  };
+  const field = `${inputClass} mt-1 font-cond text-[1.0625rem] font-semibold`;
+
+  return (
+    <div className="space-y-2 py-2" onKeyDown={keys}>
+      <label className="block text-[0.875rem] text-muted">
+        Name
+        <input autoFocus className={`${inputClass} mt-1`} value={draft.name} maxLength={16}
+               onChange={(e) => set({ name: e.target.value })} />
+      </label>
+      <div className="grid grid-cols-4 gap-2">
+        {(["w", "l", "h"] as const).map((f) => (
+          <label key={f} className="text-[0.875rem] text-muted">
+            {{ w: "Width", l: "Length", h: "Height" }[f]}
+            <input inputMode="decimal" className={field} value={draft[f]} placeholder="mm"
+                   aria-invalid={!(Number.parseFloat(draft[f]) > 0)} onChange={(e) => set({ [f]: e.target.value })} />
+          </label>
+        ))}
+        <label className="text-[0.875rem] text-muted">
+          Count
+          <input inputMode="numeric" className={field} value={draft.count} aria-invalid={!(count >= 1)}
+                 onChange={(e) => set({ count: e.target.value.replace(/\D/g, "") })} />
+        </label>
+      </div>
+      {count > 1 && (
+        <label className="flex items-center gap-2 text-[0.9375rem]">
+          <input type="checkbox" checked={loose} className="h-4 w-4 accent-ink"
+                 onChange={(e) => { setLoose(e.target.checked); onChange(toItem(draft, e.target.checked)); }} />
+          All loose in one compartment
+        </label>
+      )}
+      <div className="flex gap-2">
+        <Button primary onClick={save} disabled={!edited}>Save</Button>
+        <Button onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 export function FindTray({ items, setItems, onOpen }: {
   items: Item[];
   setItems: Dispatch<SetStateAction<Item[]>>;
@@ -121,6 +183,7 @@ export function FindTray({ items, setItems, onOpen }: {
   const [heights, setHeights] = useState<number[]>([]);   // empty: any height
   const [result, setResult] = useState<Result | null>(null);
   const [chosen, setChosen] = useState(0);
+  const [editing, setEditing] = useState<{ index: number; item: Item | null } | null>(null);
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
 
   const set = (change: Partial<Draft>) => setDraft((d) => ({ ...d, ...change }));
@@ -193,7 +256,7 @@ export function FindTray({ items, setItems, onOpen }: {
   const blocks = useMemo(() => (best && tray3d.build && !tray3d.stale ? itemBlocks(best, picked, tray3d.build) : []),
                          [best, tray3d.build, tray3d.stale]);   // picked changes only with best
 
-  const mat = !adding && best && searched.length ? (
+  const mat = !adding && !editing && best && searched.length ? (
     <div className={`h-full transition-opacity ${current ? "" : "opacity-60"}`}>
       <ViewSwitch view={view} onChange={setView} />
       {view === "3d"
@@ -201,6 +264,8 @@ export function FindTray({ items, setItems, onOpen }: {
                        note="Draft with coarse curves. Yellow blocks are your items at true size." />
         : <TrayCanvas spec={best.spec} info={best.info} marks={marks} label={`The ${title(best).size} tray, with each item in its compartment`} />}
     </div>
+  ) : editing ? (
+    <ItemsMat items={items.map((it, i) => (i === editing.index && editing.item ? editing.item : it))} draft={null} focus={editing.index} />
   ) : <ItemsMat items={items} draft={preview} />;
 
   const total = searched.length;
@@ -224,9 +289,23 @@ export function FindTray({ items, setItems, onOpen }: {
           <ul className="-my-1 divide-y divide-rule">
             {items.map((it, i) => {
               const out = leftOut.includes(i) || tooBig.has(i);
+              const label = it.name || `item ${LETTERS[i]}`;
+              // A green check: in the tray. A red cross: left out. Nothing while off or while the search runs.
+              const mark = it.off || !current ? null
+                : out ? { ok: false, note: tooBig.has(i) ? "Left out. No tray holds it, even alone." : "Left out. It does not fit with the other items." }
+                : { ok: true, note: "In the tray." };
+              if (editing?.index === i) {
+                return (
+                  <li key={i}>
+                    <ItemForm item={it} onCancel={() => setEditing(null)}
+                              onChange={(item) => setEditing({ index: i, item })}
+                              onSave={(item) => { setItems((list) => list.map((x, j) => (j === i ? item : x))); setEditing(null); }} />
+                  </li>
+                );
+              }
               return (
                 <li key={i} className="flex items-center gap-3 py-2">
-                  <input type="checkbox" checked={!it.off} aria-label={`Use ${it.name || `item ${LETTERS[i]}`}`}
+                  <input type="checkbox" checked={!it.off} aria-label={`Use ${label}`}
                          onChange={(e) => setOff((j) => (j === i ? !e.target.checked : undefined))}
                          className="h-4 w-4 shrink-0 accent-ink" />
                   <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md font-cond text-[1rem] font-semibold ${
@@ -234,18 +313,31 @@ export function FindTray({ items, setItems, onOpen }: {
                     {LETTERS[i]}
                   </span>
                   <span className={`min-w-0 flex-1 leading-tight ${it.off ? "opacity-50" : ""}`}>
-                    <span className="block truncate text-[0.9375rem] font-medium">{it.name || "No name"}</span>
-                    <span className="block text-[0.8125rem] text-muted">{tooBig.has(i) ? "Too big for any tray. " : out ? "Does not fit. " : ""}{describe(it)}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-[0.9375rem] font-medium">{it.name || "No name"}</span>
+                      {mark && (
+                        <svg viewBox="0 0 16 16" role="img" aria-label={mark.note} className={`h-4 w-4 shrink-0 ${mark.ok ? "text-mat" : "text-fault"}`}>
+                          <title>{mark.note}</title>
+                          <path d={mark.ok ? "M3 8.5l3.2 3.2L13 4.8" : "M4 4l8 8M12 4l-8 8"} fill="none" stroke="currentColor"
+                                strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="block text-[0.8125rem] text-muted">{describe(it)}</span>
                   </span>
-                  <button type="button" aria-label={`Remove ${it.name || `item ${LETTERS[i]}`}`}
-                          onClick={() => setItems((list) => list.filter((_, j) => j !== i))}
+                  {step === "list" && !editing && (
+                    <button type="button" aria-label={`Edit ${label}`} onClick={() => setEditing({ index: i, item: it })}
+                            className="rounded-md px-2 py-1 text-[0.8125rem] font-medium text-muted hover:bg-white hover:text-ink">Edit</button>
+                  )}
+                  <button type="button" aria-label={`Remove ${label}`}
+                          onClick={() => { setEditing(null); setItems((list) => list.filter((_, j) => j !== i)); }}
                           className="grid h-8 w-8 place-items-center rounded-md text-[1.125rem] text-muted hover:bg-white hover:text-ink">×</button>
                 </li>
               );
             })}
           </ul>
         )}
-        {step === "list" && items.length < LETTERS.length && <Button onClick={() => setStep("name")}>Add an item</Button>}
+        {step === "list" && !editing && items.length < LETTERS.length && <Button onClick={() => setStep("name")}>Add an item</Button>}
       </Section>
 
       {step === "name" && (

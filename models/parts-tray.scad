@@ -239,10 +239,14 @@ module tray() {
 /* ---------------------------------------------------------------------------
    Lid text, in 2D. Lid print coordinates: the inside face is up.
 --------------------------------------------------------------------------- */
-// Text that fits in a box of max_w x max_h. Long text gets smaller.
-module fit_text(txt, size, max_w, max_h) {
+// Text that fits in a box of max_w x max_h. Long text gets smaller. With turn,
+// the text turns 90 degrees when that lets it be larger, as in a narrow compartment.
+module fit_text(txt, size, max_w, max_h, turn=false) {
     m = textmetrics(txt, size=size, font=label_font).size;
-    text(txt, size=size * min(1, max_w / m.x, max_h / m.y), font=label_font, halign="center", valign="center");
+    flat = min(1, max_w / m.x, max_h / m.y);
+    turned = min(1, max_h / m.x, max_w / m.y);
+    rotate(turn && turned > flat ? 90 : 0)
+        text(txt, size=size * (turn ? max(flat, turned) : flat), font=label_font, halign="center", valign="center");
 }
 
 function comp_at(col, row) = [for (c = comps) if (c[0] == col && c[1] == row) c][0];
@@ -269,7 +273,7 @@ module lid_map() {
         if (has_label(lb))
             translate([comp_x0(c) + comp_w(c)/2, comp_y0(c) + comp_l(c)/2])
                 fit_text(lb[2], map_size, comp_w(c) - 2*(map_inset + map_line + 1.5),
-                         comp_l(c) - 2*(map_inset + map_line + 1.5));
+                         comp_l(c) - 2*(map_inset + map_line + 1.5), turn=true);
     }
 }
 

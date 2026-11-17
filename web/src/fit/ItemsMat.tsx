@@ -1,5 +1,5 @@
 // The items, laid out at true size on the mat, seen from the top.
-// The item that the questions are about has a yellow outline. Items that are off are faint.
+// The item that the questions or the edit form are about has a yellow outline. Items that are off are faint.
 
 import { Mat } from "../mat";
 import { LETTERS, type Item } from "./fit";
@@ -18,7 +18,7 @@ interface Box {
   l: number;
 }
 
-function layout(items: Item[], draft: Item | null): { boxes: Box[]; width: number; height: number } {
+function layout(items: Item[], draft: Item | null, focus?: number): { boxes: Box[]; width: number; height: number } {
   const all = draft ? [...items, draft] : items;
   const boxes: Box[] = [];
   let x = 0, y = 0, rowHeight = 0, width = 0;
@@ -30,7 +30,7 @@ function layout(items: Item[], draft: Item | null): { boxes: Box[]; width: numbe
       y += rowHeight + LABEL + GAP;
       rowHeight = 0;
     }
-    boxes.push({ item, letter: LETTERS[i] ?? "?", draft: Boolean(draft) && i === all.length - 1, x, y, w, l });
+    boxes.push({ item, letter: LETTERS[i] ?? "?", draft: (Boolean(draft) && i === all.length - 1) || i === focus, x, y, w, l });
     x += Math.max(w, 30) + GAP;
     width = Math.max(width, x - GAP);
     rowHeight = Math.max(rowHeight, l);
@@ -38,8 +38,8 @@ function layout(items: Item[], draft: Item | null): { boxes: Box[]; width: numbe
   return { boxes, width, height: y + rowHeight + LABEL };
 }
 
-export function ItemsMat({ items, draft }: { items: Item[]; draft: Item | null }) {
-  const { boxes, width, height } = layout(items, draft);
+export function ItemsMat({ items, draft, focus }: { items: Item[]; draft: Item | null; focus?: number }) {
+  const { boxes, width, height } = layout(items, draft, focus);
   const margin = 24;
   const viewW = Math.max(width, 160) + 2 * margin, viewH = Math.max(height, 110) + 2 * margin;
   const x0 = (width - viewW) / 2, y0 = (height - viewH) / 2;
