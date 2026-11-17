@@ -5,9 +5,11 @@ import { toProject } from "../build";
 import { ModelError } from "../openscad";
 import { PreviewPane, usePreview, ViewSwitch, type View } from "../preview/Preview";
 import { download } from "../printer";
+import { SavedList } from "../SavedList";
+import { useSaved } from "../storage";
 import { Button, Choice, Millimetres, Section, Toggle } from "../ui";
 import { Workbench } from "../Workbench";
-import { boxName, buildBox, inspectBox, type BoxInfo, type BoxSpec } from "./box";
+import { DEFAULT_BOX, boxName, buildBox, inspectBox, type BoxInfo, type BoxSpec } from "./box";
 import { BoxCanvas } from "./BoxCanvas";
 
 type Make =
@@ -21,6 +23,7 @@ export function BoxEditor({ spec, setSpec }: { spec: BoxSpec; setSpec: Dispatch<
   const [infoFor, setInfoFor] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [make, setMake] = useState<Make>({ state: "idle" });
+  const saved = useSaved("kallax.saved.boxes", DEFAULT_BOX);
 
   // Ask the model for the sizes after each change. A newer change wins.
   const wanted = JSON.stringify([spec.wall, spec.height, spec.cutoutTop, spec.cutoutBottom, spec.cutoutDepth]);
@@ -51,6 +54,7 @@ export function BoxEditor({ spec, setSpec }: { spec: BoxSpec; setSpec: Dispatch<
     try {
       const build = await buildBox(spec);
       keep(build);
+      saved.save(build.name, spec);
       download(`${build.name}.3mf`, toProject(build));
       setMake({ state: "done", name: `${build.name}.3mf`, seconds: (performance.now() - started) / 1000 });
     } catch (failed) {
@@ -117,6 +121,9 @@ export function BoxEditor({ spec, setSpec }: { spec: BoxSpec; setSpec: Dispatch<
           {spec.sandwich ? " Each box carries the sandwich settings, so the process preset stays as it is." : ""}
         </p>
       </Section>
+
+      <SavedList title="Saved boxes" saved={saved} name={boxName(spec)} spec={spec} onOpen={setSpec}
+                 describe={(s) => `${s.height} mm high, ${s.wall} mm wall${s.cutoutDepth > 0 ? ", cutout" : ""}${s.count === 2 ? ", two on the plate" : ""}`} />
     </>
   );
 

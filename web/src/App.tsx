@@ -2,6 +2,7 @@
 // The header stays in place across the modes, so the underline under the mode can slide to the next one.
 
 import { useLayoutEffect, useRef, useState } from "react";
+import { specReader, usePersisted } from "./storage";
 import { DEFAULT_BOX, type BoxSpec } from "./box/box";
 import { BoxEditor } from "./box/BoxEditor";
 import type { Item } from "./fit/fit";
@@ -54,10 +55,12 @@ function ModeNav({ mode, onChange }: { mode: Mode; onChange(mode: Mode): void })
 }
 
 export function App() {
-  const [mode, setMode] = useState<Mode>("edit");
-  const [spec, setSpec] = useState<TraySpec>(DEFAULT_SPEC);
-  const [items, setItems] = useState<Item[]>([]);
-  const [box, setBox] = useState<BoxSpec>(DEFAULT_BOX);
+  // The open work is saved as it changes, so a reload brings it back
+  const [mode, setMode] = usePersisted<Mode>("kallax.mode", "edit",
+    (m) => (MODES.some((x) => x.mode === m) ? (m as Mode) : "edit"));
+  const [spec, setSpec] = usePersisted<TraySpec>("kallax.tray", DEFAULT_SPEC, specReader(DEFAULT_SPEC));
+  const [items, setItems] = usePersisted<Item[]>("kallax.items", [], (v) => (Array.isArray(v) ? (v as Item[]) : []));
+  const [box, setBox] = usePersisted<BoxSpec>("kallax.box", DEFAULT_BOX, specReader(DEFAULT_BOX));
 
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh lg:min-h-0">

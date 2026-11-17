@@ -5,11 +5,13 @@ import { toProject } from "../build";
 import { ModelError } from "../openscad";
 import { PreviewPane, usePreview, ViewSwitch, type View } from "../preview/Preview";
 import { download } from "../printer";
+import { SavedList } from "../SavedList";
+import { useSaved } from "../storage";
 import { Button, Choice, Field, Section, Stepper, Toggle, inputClass } from "../ui";
 import { Workbench } from "../Workbench";
 import { TrayCanvas, type Unit } from "./TrayCanvas";
 import {
-  COLS, HEIGHTS, ROWS, autoName, buildTray, compAt, inspect, key, merge, split, tidyLabels,
+  COLS, DEFAULT_SPEC, HEIGHTS, ROWS, autoName, buildTray, compAt, inspect, key, merge, split, tidyLabels,
   type Block, type Length, type TrayInfo, type TraySpec, type Width,
 } from "./tray";
 
@@ -22,6 +24,10 @@ type Make =
 /** The fields that change the geometry. Labels, the title, and the name do not need a new query. */
 const shape = (s: TraySpec) => JSON.stringify([s.length, s.width, s.height, s.cols, s.rows, s.merges, s.pull, s.guides]);
 
+function describeTray(s: TraySpec) {
+  return `${s.title || "No title"}, ${s.length} × ${s.width}, ${s.height} mm, ${s.cols} × ${s.rows} grid`;
+}
+
 export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatch<SetStateAction<TraySpec>> }) {
   const [info, setInfo] = useState<TrayInfo | null>(null);
   const [infoShape, setInfoShape] = useState("");
@@ -31,6 +37,8 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
   const [make, setMake] = useState<Make>({ state: "idle" });
   const [heightText, setHeightText] = useState("");
   const labelField = useRef<HTMLInputElement>(null);
+  const saved = useSaved("kallax.saved.trays", DEFAULT_SPEC);
+  const fileName = spec.name || autoName(spec);
 
   // Ask the model for the sizes after each change to the geometry. A newer change wins.
   const wanted = shape(spec);
@@ -139,6 +147,7 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
           ...m, steps: done ? m.steps.map((s) => s.part === part ? { part, seconds } : s) : [...m.steps, { part }],
         }) });
       keep(build);
+      saved.save(fileName, spec);
       download(`${build.name}.3mf`, toProject(build));
       setMake({ state: "done", name: `${build.name}.3mf`, seconds: (performance.now() - started) / 1000 });
     } catch (failed) {
@@ -239,6 +248,9 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
                    onChange={(e) => update({ name: e.target.value.trim() })} />
           )}</Field>
         </Section>
+
+        <SavedList title="Saved trays" saved={saved} name={fileName} spec={spec} describe={describeTray}
+                   onOpen={(s) => { setSpec(s); setCursor([0, 0]); setAnchor(null); setHeightText(""); }} />
       </>} status={<>
         <p className="min-w-0 basis-full text-[0.9375rem] sm:basis-auto sm:flex-1">
           {info && !stale ? (

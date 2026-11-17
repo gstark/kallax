@@ -1,13 +1,14 @@
 // The 3D preview on the mat: the switch between the top view and 3D, the state of
 // the preview, and a picker when the build has more than one plate.
 
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { Build } from "../build";
 import type { Block } from "./PlateView";
+import { lazyRetry, LoadBoundary } from "../lazyRetry";
 
 // three.js is large. It loads the first time someone opens the 3D view.
-const PlateView = lazy(() => import("./PlateView"));
-const PendingView = lazy(() => import("./PendingView"));
+const PlateView = lazyRetry(() => import("./PlateView"));
+const PendingView = lazyRetry(() => import("./PendingView"));
 
 export type View = "top" | "3d";
 
@@ -90,18 +91,28 @@ export function PreviewPane({ preview, what, size, blocks, note }: {
   // A fast render, such as the box, keeps the old part on screen for its second of work.
   const pending = !error && (!build || (running && stale && build.draft));
   const loading = <p className="grid h-full place-items-center font-cond text-[1.25rem] text-mat-ink">Loading the 3D view</p>;
+  const failed = (
+    <div className="grid h-full place-content-center justify-items-center gap-3 font-cond text-[1.25rem] text-mat-ink">
+      <p>The 3D view did not load.</p>
+      <button type="button" onClick={() => location.reload()} className="rounded-md bg-sheet px-3 py-1.5 font-sans text-[0.875rem] font-medium text-ink">
+        Reload the page
+      </button>
+    </div>
+  );
 
   return (
     <div className="relative h-full w-full">
-      {pending ? (
-        <Suspense fallback={loading}>
-          <PendingView title={size} detail={`Rendering ${what}`} />
-        </Suspense>
-      ) : shown ? (
-        <Suspense fallback={loading}>
-          <PlateView plate={shown} blocks={shown === plates[0] ? blocks : undefined} />
-        </Suspense>
-      ) : null}
+      <LoadBoundary fallback={failed}>
+        {pending ? (
+          <Suspense fallback={loading}>
+            <PendingView title={size} detail={`Rendering ${what}`} />
+          </Suspense>
+        ) : shown ? (
+          <Suspense fallback={loading}>
+            <PlateView plate={shown} blocks={shown === plates[0] ? blocks : undefined} />
+          </Suspense>
+        ) : null}
+      </LoadBoundary>
       {pending && <p className="sr-only" aria-live="polite">Rendering {what}</p>}
 
       {error && (
