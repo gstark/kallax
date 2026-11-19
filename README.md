@@ -26,7 +26,7 @@ The `justfile` at the root runs the CLI tools.
 | File | Part |
 |---|---|
 | `models/kallax-box.scad` | The box. The inside is 96 × 246 mm, and the outside grows with the wall. It has a finger cutout in the front wall. |
-| `models/parts-tray.scad` | A parts tray with a grid of compartments, merged compartments, a finger pocket, label guides, and a friction-fit lid. The lid can have a compartment map and a title in a second color. |
+| `models/parts-tray.scad` | A parts tray with a grid of compartments, merged compartments, a finger pocket at each end, label guides, and a friction-fit lid. The lid can have a compartment map and a title in a second color. |
 | `models/labels.scad` | Slide-in labels for the tray label guides. |
 | `models/small-boxes.scad` | Small boxes with friction-fit lids that tile inside the box. |
 | `models/organizer-bins.scad` | Lidded bins with a pin hinge that tile inside the box. |

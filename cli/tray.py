@@ -170,13 +170,16 @@ class GridEditor(Widget, can_focus=True):
                 write(k.col, k.row, k.cols, k.rows, 0, label or "━━━", LABEL if label else None)
 
         out = Text(no_wrap=True)
-        out.append("back".center(width) + "\n", "dim")
+        bar = ("▄" * round(width * info.pocket / info.width)).center(width) + "\n" if info.pocket else ""
+        out.append(("back, with the finger pocket" if bar else "back").center(width) + "\n", "dim")
+        if bar:
+            out.append(bar, "#e0a44a")
         for line in range(height):
             for col in range(width):
                 out.append(chars[line][col], styles[line][col])
             out.append("\n")
         if info.pocket:
-            out.append(("▀" * round(width * info.pocket / info.width)).center(width) + "\n", "#e0a44a")
+            out.append(bar.replace("▄", "▀"), "#e0a44a")
             out.append("front, with the finger pocket".center(width), "dim")
         else:
             out.append("front".center(width), "dim")
@@ -485,7 +488,7 @@ class TrayApp(App):
                     yield Input(str(spec.cols), type="integer", id="cols")
                     yield Label(" along")
                     yield Input(str(spec.rows), type="integer", id="rows")
-                yield Checkbox("Finger pocket in the front end", spec.pull, id="pull", classes="field")
+                yield Checkbox("Finger pockets in the ends", spec.pull, id="pull", classes="field")
                 yield Checkbox("Label guides", spec.guides, id="guides")
                 yield Label("Lid title, on the outside", classes="field")
                 yield Input(spec.title, max_length=24, id="title")
@@ -625,7 +628,7 @@ class TrayApp(App):
                          f"{'with' if here.guided else 'no'} label guides")
             elif here:
                 text += ("[b]Compartment[/b]  [yellow]solid: too short behind the finger pocket. "
-                         "Merge it with the unit behind it, or turn off the pocket.[/]")
+                         "Merge it with the next unit inward, or turn off the pockets.[/]")
             count, on_lid = len(info.labels(self.spec)), info.lid_labels(self.spec)
             text += (f"\n[b]Labels[/b]       {on_lid} on the lid map, {count} on plate 2" if on_lid else
                      "\n[dim]━━━ label guides on the back wall. Press enter to type a label.[/dim]")
@@ -717,7 +720,7 @@ def main():
                     help="merge grid units into one compartment. COL and ROW start at 0 at the "
                          "front left. You can use this option more than once")
     ap.add_argument("--pull", action=argparse.BooleanOptionalAction, default=True,
-                    help="finger pocket in the front end (default: on)")
+                    help="finger pockets in the front end and the back end (default: on)")
     ap.add_argument("--guides", action=argparse.BooleanOptionalAction, default=True,
                     help="label guides on the back wall of each compartment (default: on)")
     ap.add_argument("--label", type=label_arg, action="append", default=[], metavar="COL,ROW=TEXT",

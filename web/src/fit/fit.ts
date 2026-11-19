@@ -117,12 +117,14 @@ class Grid {
     return Math.min(this.cw, this.cd) >= this.info.fit.minCell;
   }
 
-  size(c: number, r: number, a: number, b: number): [number, number, boolean] {
+  size(c: number, r: number, a: number, b: number): [number, number, number] {
     const k = this.info.fit;
     const x0 = -this.info.width / 2 + k.wall + c * (this.cw + k.divT);
     const wide = a * this.cw + (a - 1) * k.divT;
-    const hit = this.pull && r === 0 && x0 < this.pw / 2 + k.wall - 0.01 && x0 + wide > -this.pw / 2 - k.wall + 0.01;
-    return [wide, b * this.cd + (b - 1) * k.divT - (hit ? k.cut : 0), hit];
+    const behind = this.pull && x0 < this.pw / 2 + k.wall - 0.01 && x0 + wide > -this.pw / 2 - k.wall + 0.01;
+    // Pockets in front of and behind this compartment
+    const hits = behind ? Number(r === 0) + Number(r + b === this.rows) : 0;
+    return [wide, b * this.cd + (b - 1) * k.divT - hits * k.cut, hits];
   }
 }
 
@@ -142,8 +144,8 @@ function pack(items: Item[], grid: Grid): Place[] | null {
       for (let a = 1; a <= cols - c; a++) {
         for (let b = 1; b <= rows - r; b++) {
           if (found.some(([a2, b2]) => a2 <= a && b2 <= b)) continue;
-          const [wide, long, hit] = grid.size(c, r, a, b);
-          const room = `${i},${a},${b},${hit}`;
+          const [wide, long, hits] = grid.size(c, r, a, b);
+          const room = `${i},${a},${b},${hits}`;
           if (!rooms.has(room)) {
             const guided = k.guideP > 0 && wide >= k.guideW && long >= k.minCell;
             rooms.set(room, fits(items[i], wide, long, depth, guided, k));

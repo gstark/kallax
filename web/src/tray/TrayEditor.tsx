@@ -204,7 +204,7 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
         <Section title="Grid" aside={info && !stale ? `${info.unitW.toFixed(1)} × ${info.unitL.toFixed(1)} mm units` : undefined}>
           <Stepper label="Across" value={spec.cols} min={1} max={10} onChange={(cols) => regrid({ cols })} />
           <Stepper label="Along" value={spec.rows} min={1} max={26} onChange={(rows) => regrid({ rows })} />
-          <Toggle label="Finger pocket" note="A notch in the front end to lift the tray out." checked={spec.pull}
+          <Toggle label="Finger pockets" note="A notch in each end to lift the tray out." checked={spec.pull}
                   onChange={(pull) => update({ pull })} />
           <Toggle label="Label guides" note="Rails on the back wall that hold a printed label." checked={spec.guides}
                   onChange={(guides) => update({ guides })} />
@@ -213,7 +213,7 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
         <Section title="Compartment" aside={here?.usable ? `${here.width.toFixed(1)} × ${here.length.toFixed(1)} mm` : undefined}>
           {here && !here.usable ? (
             <p className="text-[0.9375rem] leading-snug text-muted">
-              This unit is too short behind the finger pocket, so it stays solid. Merge it with the unit behind it, or turn off the pocket.
+              This unit is too short behind the finger pocket, so it stays solid. Merge it with the next unit inward, or turn off the pockets.
             </p>
           ) : (
             <Field label="Label" hint={here?.guided ? "About 6 characters print well on a slide-in label." : "Goes on the lid map only. This compartment has no label guides."}>

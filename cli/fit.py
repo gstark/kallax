@@ -129,8 +129,9 @@ class Grid:
         k = self.k
         x0 = -self.info.width / 2 + k["wall"] + c * (self.cw + k["div_t"])
         wide = a * self.cw + (a - 1) * k["div_t"]
-        hit = self.pull and r == 0 and x0 < self.pw / 2 + k["wall"] - 0.01 and x0 + wide > -self.pw / 2 - k["wall"] + 0.01
-        return wide, b * self.cd + (b - 1) * k["div_t"] - (k["cut"] if hit else 0), hit
+        behind = self.pull and x0 < self.pw / 2 + k["wall"] - 0.01 and x0 + wide > -self.pw / 2 - k["wall"] + 0.01
+        hits = behind * ((r == 0) + (r + b == self.rows))   # pockets in front of and behind this compartment
+        return wide, b * self.cd + (b - 1) * k["div_t"] - hits * k["cut"], hits
 
 
 def fits(item, room_w, room_l, depth, guided, k, clearance):
@@ -316,7 +317,7 @@ def main():
     ap.add_argument("--clearance", type=float, default=1.0,
                     help="extra room for each item in width and in length, in mm (default: 1)")
     ap.add_argument("--pull", action=argparse.BooleanOptionalAction, default=True,
-                    help="finger pocket in the front end (default: on)")
+                    help="finger pockets in the front end and the back end (default: on)")
     ap.add_argument("--guides", action=argparse.BooleanOptionalAction, default=True,
                     help="label guides on the back wall of each compartment (default: on)")
     ap.add_argument("--fill", type=float, default=0.5,

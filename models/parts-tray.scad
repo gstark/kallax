@@ -24,7 +24,7 @@ rows   = 4;        // grid units along the length
 // Merged compartments as [col, row, cols wide, rows long] on the grid. Row 0
 // is the front. Each grid unit outside a merge is one compartment.
 merges = [];
-pull   = true;     // finger pocket in the front end
+pull   = true;     // finger pockets in the front end and the back end
 label_guides = true;   // guides for a slide-in label on the back wall of each compartment
 // Lid text. A label is [col, row, text] for the compartment whose front left
 // unit is col, row. With labels, the inside of the lid gets the map.
@@ -43,7 +43,8 @@ groove_w = fit + skirt_t + 0.3;   // channel inside the rim for the lid plug
 groove_h = skirt_h + 0.3;
 
 // Finger pull. A tray fills the parent with 0.5 mm of gap, so there is no
-// other grip. A finger goes down the pocket and hooks under the lip.
+// other grip. A finger goes down the pocket and hooks under the lip. There is
+// a pocket at each end, so you can lift the tray level with two fingers.
 pull_d   = 12;     // pocket depth at the rim
 pull_u   = 3;      // extra depth below the lip
 pull_lip = 6;      // lip height below the rim
@@ -78,7 +79,7 @@ assert(rows >= 1 && cd >= min_cell, "too many rows for this length");
 // finger, the pocket has a fixed width.
 snap_w = cw + 2*div_t - 2*wall;
 pw     = !pull ? 0 : (cols % 2 == 1 && snap_w >= 20 && snap_w <= 32) ? snap_w : pull_w0;
-cut    = pull ? pull_d + pull_u : 0;   // how far the pocket goes into the tray
+cut    = pull ? pull_d + pull_u : 0;   // how far each pocket goes into the tray
 
 // Lid text. The text is inlaid flush, so the lid still rests flat on the dividers.
 inlay_t    = 0.4;   // inlay depth, 2 layers at 0.2 mm
@@ -92,7 +93,7 @@ title_edge = 6;     // title clearance from the lid edges
 label_z = bh - floor_t - groove_h - 0.5 - label_h;
 
 function cell_x0(ix) = -w/2 + wall + ix * (cw + div_t);
-// True if the span from x0 to x0 + wd is behind the pocket or its walls
+// True if the span from x0 to x0 + wd is behind a pocket or its walls
 function hit(x0, wd) = pull && x0 < pw/2 + wall - 0.01 && x0 + wd > -pw/2 - wall + 0.01;
 
 for (m = merges)
@@ -100,29 +101,41 @@ for (m = merges)
            str("merge ", m, " is outside the ", cols, " x ", rows, " grid"));
 function merged(ix, iy) =
     len([for (m = merges) if (ix >= m[0] && ix < m[0] + m[2] && iy >= m[1] && iy < m[1] + m[3]) 1]) > 0;
-// A front unit that is too short behind the pocket joins the unit behind it
-function joins(ix) = cd - cut < min_cell && rows > 1 && hit(cell_x0(ix), cw) && !merged(ix, 0) && !merged(ix, 1);
+// An end unit that is too short behind its pocket joins the next unit inward.
+// The front unit joins row 1, and the back unit joins row rows - 2.
+function short(ix) = cd - cut < min_cell && rows > 1 && hit(cell_x0(ix), cw);
+function joins_f(ix) = short(ix) && !merged(ix, 0) && !merged(ix, 1);
+function joins_b(ix) = short(ix) && !merged(ix, rows - 1) && !merged(ix, rows - 2);
+// [first row, rows long] of the unit that holds row iy in column ix
+function run(ix, iy) =
+    let(f = joins_f(ix) ? 2 : 1, b = joins_b(ix) ? 2 : 1)
+    f + b > rows ? [0, rows]
+  : iy < f ? [0, f]
+  : iy >= rows - b ? [rows - b, b]
+  : [iy, 1];
 units = [for (ix = [0 : cols - 1], iy = [0 : rows - 1])
-            if (!merged(ix, iy) && !(joins(ix) && iy == 1)) [ix, iy, 1, joins(ix) && iy == 0 ? 2 : 1]];
+            if (!merged(ix, iy) && run(ix, iy)[0] == iy) [ix, iy, 1, run(ix, iy)[1]]];
 comps = concat(merges, units);
 
 // Compartment c = [col, row, cols wide, rows long]
 function comp_w(c)  = c[2] * cw + (c[2] - 1) * div_t;
 function comp_x0(c) = cell_x0(c[0]);
-function comp_yb(c) = -d/2 + wall + (c[1] + c[3]) * (cd + div_t) - div_t;   // back wall
-// A front compartment behind the pocket starts later
+// A front compartment behind the pocket starts later, and a back one ends sooner
+function comp_yb(c) = -d/2 + wall + (c[1] + c[3]) * (cd + div_t) - div_t
+                      - (c[1] + c[3] == rows && hit(comp_x0(c), comp_w(c)) ? cut : 0);   // back wall
 function comp_y0(c) = -d/2 + wall + c[1] * (cd + div_t) + (c[1] == 0 && hit(comp_x0(c), comp_w(c)) ? cut : 0);
 function comp_l(c)  = comp_yb(c) - comp_y0(c);
-// A compartment that is too short behind the pocket stays solid
+// A compartment that is too short behind a pocket stays solid
 function usable(c)  = comp_l(c) >= min_cell;
 // Narrow or shallow compartments get no label guides
 function guided(c)  = label_guides && usable(c) && label_z >= 1 && comp_w(c) >= slot_w + 2.4;
 
-// Footprint, with the finger pocket at the front (-y) end
+// Footprint, with a finger pocket at the front (-y) end and at the back (+y) end
 outline = !pull ? rect([w, d], rounding=r_vert) : round_corners(
-    [[-w/2, -d/2], [-pw/2, -d/2], [-pw/2, -d/2 + pull_d], [pw/2, -d/2 + pull_d],
-     [pw/2, -d/2], [w/2, -d/2], [w/2, d/2], [-w/2, d/2]],
-    radius=[r_vert, 1, pull_r, pull_r, 1, r_vert, r_vert, r_vert]);
+    [[-w/2, -d/2], [-pw/2, -d/2], [-pw/2, -d/2 + pull_d], [pw/2, -d/2 + pull_d], [pw/2, -d/2],
+     [w/2, -d/2], [w/2, d/2], [pw/2, d/2], [pw/2, d/2 - pull_d], [-pw/2, d/2 - pull_d], [-pw/2, d/2],
+     [-w/2, d/2]],
+    radius=[r_vert, 1, pull_r, pull_r, 1, r_vert, r_vert, 1, pull_r, pull_r, 1, r_vert]);
 
 // For tray.py: sizes of the tray and of each compartment
 echo(tray_data=[w, d, height, bh - floor_t, pw, cw, cd,
@@ -136,7 +149,7 @@ echo(str("Tray ", w, " x ", d, " x ", height, " mm, ", n_usable, " compartments 
          " grid. One unit is ", round(cw * 10) / 10, " x ", round(cd * 10) / 10, " x ",
          round((bh - floor_t) * 10) / 10, " mm"));
 if (n_usable < len(comps))
-    echo(str(len(comps) - n_usable, " front compartments are too short behind the finger pocket. They stay solid."));
+    echo(str(len(comps) - n_usable, " end compartments are too short behind the finger pockets. They stay solid."));
 if (label_guides)
     echo(n_guided == 0 ? "No label guides: the compartments are too narrow or too shallow"
                        : str("Label guides in ", n_guided, " of ", n_usable, " compartments, for ",
@@ -218,18 +231,20 @@ module tray() {
                     polygon(offset(outline, r=-(wall + groove_w), closed=true));
                 }
 
-        // Undercut below the pocket lip. The 45 degree underside prints without support.
+        // Undercut below each pocket lip. The 45 degree underside prints without support.
         if (pull)
-            hull() {
-                translate([0, -d/2, -1])
-                    cuboid([pw, 2 * cut, zl - pull_u + 1], rounding=pull_r, edges="Z", anchor=BOT);
-                translate([0, -d/2, zl - 0.01])
-                    cuboid([pw, 2 * pull_d, 0.01], rounding=pull_r, edges="Z", anchor=BOT);
-            }
+            for (y = [-d/2, d/2])
+                hull() {
+                    translate([0, y, -1])
+                        cuboid([pw, 2 * cut, zl - pull_u + 1], rounding=pull_r, edges="Z", anchor=BOT);
+                    translate([0, y, zl - 0.01])
+                        cuboid([pw, 2 * pull_d, 0.01], rounding=pull_r, edges="Z", anchor=BOT);
+                }
 
-        // Fingernail notch in the back rim: lets you lever the lid off
-        translate([0, d/2 - wall/2, bh + notch_r - notch_h])
-            cyl(r=notch_r, h=wall + 2, orient=FWD);
+        // Fingernail notch in the right side rim: lets you lever the lid off.
+        // The ends have the pockets, so the notch is on a side.
+        translate([w/2 - wall/2, 0, bh + notch_r - notch_h])
+            cyl(r=notch_r, h=wall + 2, orient=RIGHT);
     }
     for (c = comps)
         if (guided(c))

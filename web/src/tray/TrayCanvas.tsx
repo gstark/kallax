@@ -35,27 +35,39 @@ const MARGIN = 26;        // room on the mat for the dimension lines
 const OUTLINE_R = 3.5;    // r_vert in box-params.scad
 const FLOOR_R = 4;        // r_cell in parts-tray.scad
 
-/** The rectangle of a compartment, in SVG coordinates. Follows comp_x0 and comp_y0 in parts-tray.scad. */
-function compRect(info: TrayInfo, c: Block & { width: number; length: number }) {
+/** The rectangle of a compartment, in SVG coordinates. Follows comp_y0 and comp_yb in parts-tray.scad. */
+function compRect(info: TrayInfo, rows: number, c: Block & { width: number; length: number }) {
   const x = -info.width / 2 + info.wall + c.col * (info.unitW + info.divider);
-  const back = -info.length / 2 + info.wall + (c.row + c.rows) * (info.unitL + info.divider) - info.divider;
-  return { x, y: -back, w: c.width, h: c.length };
+  const front = -info.length / 2 + info.wall + c.row * (info.unitL + info.divider);
+  const back = front + c.rows * (info.unitL + info.divider) - info.divider;
+  // The model shortens a compartment behind a pocket. Take the cut from the back end
+  // when the compartment is at the back, and from the front end otherwise.
+  const cut = back - front - c.length;
+  const atFront = c.row === 0, atBack = c.row + c.rows === rows;
+  const fromBack = atBack ? (atFront ? cut / 2 : cut) : 0;
+  return { x, y: -(back - fromBack), w: c.width, h: c.length };
 }
 
-function unitRect(info: TrayInfo, b: Block) {
-  return compRect(info, { ...b, width: b.cols * info.unitW + (b.cols - 1) * info.divider,
-                          length: b.rows * info.unitL + (b.rows - 1) * info.divider });
+function unitRect(info: TrayInfo, rows: number, b: Block) {
+  return compRect(info, rows, { ...b, width: b.cols * info.unitW + (b.cols - 1) * info.divider,
+                                length: b.rows * info.unitL + (b.rows - 1) * info.divider });
 }
 
-/** The tray outline with the finger pocket cut into the front. */
+/** The tray outline with a finger pocket cut into the front and into the back. */
 function outline(info: TrayInfo) {
   const w = info.width / 2, d = info.length / 2, r = OUTLINE_R;
   const p = info.pocket / 2, pd = info.pocketDepth;
+  // The pocket at the front end (SVG y = d), drawn from +x to -x
   const front = p > 0
     ? `L ${p + 1} ${d} Q ${p} ${d} ${p} ${d - 1} L ${p} ${d - pd + 3} Q ${p} ${d - pd} ${p - 3} ${d - pd} ` +
       `L ${-p + 3} ${d - pd} Q ${-p} ${d - pd} ${-p} ${d - pd + 3} L ${-p} ${d - 1} Q ${-p} ${d} ${-p - 1} ${d} `
     : "";
-  return `M ${-w + r} ${-d} L ${w - r} ${-d} Q ${w} ${-d} ${w} ${-d + r} L ${w} ${d - r} Q ${w} ${d} ${w - r} ${d} ` +
+  // The pocket at the back end (SVG y = -d), drawn from -x to +x
+  const back = p > 0
+    ? `L ${-p - 1} ${-d} Q ${-p} ${-d} ${-p} ${-d + 1} L ${-p} ${-d + pd - 3} Q ${-p} ${-d + pd} ${-p + 3} ${-d + pd} ` +
+      `L ${p - 3} ${-d + pd} Q ${p} ${-d + pd} ${p} ${-d + pd - 3} L ${p} ${-d + 1} Q ${p} ${-d} ${p + 1} ${-d} `
+    : "";
+  return `M ${-w + r} ${-d} ${back}L ${w - r} ${-d} Q ${w} ${-d} ${w} ${-d + r} L ${w} ${d - r} Q ${w} ${d} ${w - r} ${d} ` +
          `${front}L ${-w + r} ${d} Q ${-w} ${d} ${-w} ${d - r} L ${-w} ${-d + r} Q ${-w} ${-d} ${-w + r} ${-d} Z`;
 }
 
@@ -166,8 +178,8 @@ export function TrayCanvas({ spec, info, cursor = [0, 0], selection, selecting =
   };
 
   const interactive = Boolean(onPick);
-  const sel = selection ? unitRect(info, selection) : null;
-  const cur = unitRect(info, { col: cursor[0], row: cursor[1], cols: 1, rows: 1 });
+  const sel = selection ? unitRect(info, spec.rows, selection) : null;
+  const cur = unitRect(info, spec.rows, { col: cursor[0], row: cursor[1], cols: 1, rows: 1 });
   const inSelection = (c: Comp) => Boolean(selection) && interactive &&
     c.col >= selection!.col && c.col + c.cols <= selection!.col + selection!.cols &&
     c.row >= selection!.row && c.row + c.rows <= selection!.row + selection!.rows;
@@ -222,7 +234,7 @@ export function TrayCanvas({ spec, info, cursor = [0, 0], selection, selecting =
       <g opacity={stale ? 0.55 : 1} style={{ transition: "opacity 160ms" }}>
         <path d={outline(info)} className="fill-pla" filter="url(#lift)" />
         {info.comps.map((c) => {
-          const r = compRect(info, c);
+          const r = compRect(info, spec.rows, c);
           const round = Math.min(FLOOR_R, r.w / 2 - 0.1, r.h / 2 - 0.1);
           const chosen = inSelection(c) && !stale;
           return (
@@ -238,7 +250,7 @@ export function TrayCanvas({ spec, info, cursor = [0, 0], selection, selecting =
             </g>
           );
         })}
-        {marks?.map((m, i) => <ItemMark key={i} mark={m} rect={unitRect(info, m.block)} />)}
+        {marks?.map((m, i) => <ItemMark key={i} mark={m} rect={unitRect(info, spec.rows, m.block)} />)}
         {!stale && sel && interactive && (
           <>
             <rect x={sel.x - 0.6} y={sel.y - 0.6} width={sel.w + 1.2} height={sel.h + 1.2} rx={FLOOR_R}
@@ -261,7 +273,7 @@ export function TrayCanvas({ spec, info, cursor = [0, 0], selection, selecting =
       )}
 
       <text x={-W / 2} y={D / 2 + 10} className="fill-mat-ink font-cond" fontSize={4} fontWeight={500} opacity={0.8}>
-        Front{info.pocket ? ", with the finger pocket" : ""}
+        Front{info.pocket ? ", with a finger pocket at each end" : ""}
       </text>
     </svg>
   );
