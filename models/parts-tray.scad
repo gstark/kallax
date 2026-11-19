@@ -24,10 +24,16 @@ rows   = 4;        // grid units along the length
 // Merged compartments as [col, row, cols wide, rows long] on the grid. Row 0
 // is the front. Each grid unit outside a merge is one compartment.
 merges = [];
+// A free layout, in place of the grid: compartments as [x, y, width, length] in mm.
+// x and y go from the front left corner of the inner floor. Leave a divider
+// (div_t) between two compartments. With a layout, cols, rows, and merges do
+// nothing, and compartment i is [i, 0, 1, 1] for its lid label.
+layout = [];
 pull   = true;     // finger pockets in the front end and the back end
 label_guides = true;   // guides for a slide-in label on the back wall of each compartment
 // Lid text. A label is [col, row, text] for the compartment whose front left
-// unit is col, row. With labels, the inside of the lid gets the map.
+// unit is col, row, or [i, 0, text] for compartment i of a layout. With labels,
+// the inside of the lid gets the map.
 lid_labels = [];
 lid_title  = "";   // text on the outside of the lid
 part   = "pair";   // pair | box | lid | lid_text
@@ -77,8 +83,9 @@ assert(rows >= 1 && cd >= min_cell, "too many rows for this length");
 // With an odd number of columns, the pocket walls line up with the dividers
 // of the middle column. If that pocket is too narrow or too wide for a
 // finger, the pocket has a fixed width.
+free   = layout != [];
 snap_w = cw + 2*div_t - 2*wall;
-pw     = !pull ? 0 : (cols % 2 == 1 && snap_w >= 20 && snap_w <= 32) ? snap_w : pull_w0;
+pw     = !pull ? 0 : (!free && cols % 2 == 1 && snap_w >= 20 && snap_w <= 32) ? snap_w : pull_w0;
 cut    = pull ? pull_d + pull_u : 0;   // how far each pocket goes into the tray
 
 // Lid text. The text is inlaid flush, so the lid still rests flat on the dividers.
@@ -97,7 +104,7 @@ function cell_x0(ix) = -w/2 + wall + ix * (cw + div_t);
 function hit(x0, wd) = pull && x0 < pw/2 + wall - 0.01 && x0 + wd > -pw/2 - wall + 0.01;
 
 for (m = merges)
-    assert(m[0] >= 0 && m[1] >= 0 && m[2] >= 1 && m[3] >= 1 && m[0] + m[2] <= cols && m[1] + m[3] <= rows,
+    assert(free || (m[0] >= 0 && m[1] >= 0 && m[2] >= 1 && m[3] >= 1 && m[0] + m[2] <= cols && m[1] + m[3] <= rows),
            str("merge ", m, " is outside the ", cols, " x ", rows, " grid"));
 function merged(ix, iy) =
     len([for (m = merges) if (ix >= m[0] && ix < m[0] + m[2] && iy >= m[1] && iy < m[1] + m[3]) 1]) > 0;
@@ -115,16 +122,41 @@ function run(ix, iy) =
   : [iy, 1];
 units = [for (ix = [0 : cols - 1], iy = [0 : rows - 1])
             if (!merged(ix, iy) && run(ix, iy)[0] == iy) [ix, iy, 1, run(ix, iy)[1]]];
-comps = concat(merges, units);
 
-// Compartment c = [col, row, cols wide, rows long]
-function comp_w(c)  = c[2] * cw + (c[2] - 1) * div_t;
-function comp_x0(c) = cell_x0(c[0]);
-// A front compartment behind the pocket starts later, and a back one ends sooner
-function comp_yb(c) = -d/2 + wall + (c[1] + c[3]) * (cd + div_t) - div_t
-                      - (c[1] + c[3] == rows && hit(comp_x0(c), comp_w(c)) ? cut : 0);   // back wall
-function comp_y0(c) = -d/2 + wall + c[1] * (cd + div_t) + (c[1] == 0 && hit(comp_x0(c), comp_w(c)) ? cut : 0);
-function comp_l(c)  = comp_yb(c) - comp_y0(c);
+// A compartment is [col, row, cols, rows, x0, y0, width, length]: its grid
+// place, then its front left corner and its size in mm. A compartment end
+// behind a pocket moves inward to clear the pocket.
+function clear_pocket(g, x0, y0, wd, yb) =
+    let(f = y0 < -d/2 + wall + cut - 0.01 && hit(x0, wd) ? -d/2 + wall + cut : y0,
+        b = yb > d/2 - wall - cut + 0.01 && hit(x0, wd) ? d/2 - wall - cut : yb)
+    [g[0], g[1], g[2], g[3], x0, f, wd, b - f];
+function grid_comp(g) =
+    let(wd = g[2] * cw + (g[2] - 1) * div_t, y0 = -d/2 + wall + g[1] * (cd + div_t))
+    clear_pocket(g, cell_x0(g[0]), y0, wd, y0 + g[3] * (cd + div_t) - div_t);
+function free_comp(i) =
+    let(r = layout[i]) clear_pocket([i, 0, 1, 1], -w/2 + wall + r[0], -d/2 + wall + r[1], r[2], -d/2 + wall + r[1] + r[3]);
+comps = free ? [for (i = [0 : len(layout) - 1]) free_comp(i)] : [for (g = concat(merges, units)) grid_comp(g)];
+
+// A layout must stay inside the floor, with a divider between compartments
+if (free)
+    for (i = [0 : len(layout) - 1]) {
+        r = layout[i];
+        assert(len(r) == 4 && r[0] >= -0.01 && r[1] >= -0.01 && r[2] > 0 && r[3] > 0
+               && r[0] + r[2] <= w - 2*wall + 0.01 && r[1] + r[3] <= d - 2*wall + 0.01,
+               str("layout compartment ", i, " ", r, " is outside the floor"));
+        for (j = [i + 1 : 1 : len(layout) - 1]) {
+            q = layout[j];
+            assert(r[0] + r[2] + div_t <= q[0] + 0.01 || q[0] + q[2] + div_t <= r[0] + 0.01
+                   || r[1] + r[3] + div_t <= q[1] + 0.01 || q[1] + q[3] + div_t <= r[1] + 0.01,
+                   str("layout compartments ", i, " and ", j, " overlap or have no divider between them"));
+        }
+    }
+
+function comp_x0(c) = c[4];
+function comp_y0(c) = c[5];
+function comp_w(c)  = c[6];
+function comp_l(c)  = c[7];
+function comp_yb(c) = c[5] + c[7];   // back wall
 // A compartment that is too short behind a pocket stays solid
 function usable(c)  = comp_l(c) >= min_cell;
 // Narrow or shallow compartments get no label guides
@@ -139,17 +171,19 @@ outline = !pull ? rect([w, d], rounding=r_vert) : round_corners(
 
 // For tray.py: sizes of the tray and of each compartment
 echo(tray_data=[w, d, height, bh - floor_t, pw, cw, cd,
-                [for (c = comps) [c[0], c[1], c[2], c[3], comp_w(c), comp_l(c), usable(c), guided(c)]]]);
+                [for (c = comps) [c[0], c[1], c[2], c[3], comp_w(c), comp_l(c), usable(c), guided(c), comp_x0(c), comp_y0(c)]]]);
 // For fit.py: the constants that its packer uses to try grids without a model run
 echo(fit_data=[wall, div_t, min_cell, cut, pull_w0, r_cell, scoop_r, groove_h,
                label_guides && label_z >= 1 ? guide_p : 0, slot_w + 2.4, pull_d]);
 n_usable = len([for (c = comps) if (usable(c)) 1]);
 n_guided = len([for (c = comps) if (guided(c)) 1]);
-echo(str("Tray ", w, " x ", d, " x ", height, " mm, ", n_usable, " compartments on a ", cols, " x ", rows,
-         " grid. One unit is ", round(cw * 10) / 10, " x ", round(cd * 10) / 10, " x ",
-         round((bh - floor_t) * 10) / 10, " mm"));
+echo(free ? str("Tray ", w, " x ", d, " x ", height, " mm, ", n_usable, " compartments in a free layout, ",
+              round((bh - floor_t) * 10) / 10, " mm deep")
+          : str("Tray ", w, " x ", d, " x ", height, " mm, ", n_usable, " compartments on a ", cols, " x ", rows,
+                " grid. One unit is ", round(cw * 10) / 10, " x ", round(cd * 10) / 10, " x ",
+                round((bh - floor_t) * 10) / 10, " mm"));
 if (n_usable < len(comps))
-    echo(str(len(comps) - n_usable, " end compartments are too short behind the finger pockets. They stay solid."));
+    echo(str(len(comps) - n_usable, " compartments are too short behind the finger pockets. They stay solid."));
 if (label_guides)
     echo(n_guided == 0 ? "No label guides: the compartments are too narrow or too shallow"
                        : str("Label guides in ", n_guided, " of ", n_usable, " compartments, for ",

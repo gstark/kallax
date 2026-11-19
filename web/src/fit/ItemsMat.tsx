@@ -2,7 +2,8 @@
 // The item that the questions or the edit form are about has a yellow outline. Items that are off are faint.
 
 import { Mat } from "../mat";
-import { LETTERS, type Item } from "./fit";
+import { LETTERS } from "./fit";
+import type { Item } from "./room";
 
 const GAP = 12;        // between items, mm
 const ROW_WIDTH = 246; // wrap at the length of the Kallax box interior

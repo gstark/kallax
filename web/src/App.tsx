@@ -5,7 +5,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { specReader, usePersisted } from "./storage";
 import { DEFAULT_BOX, type BoxSpec } from "./box/box";
 import { BoxEditor } from "./box/BoxEditor";
-import type { Item } from "./fit/fit";
+import type { Item } from "./fit/room";
 import { FindTray } from "./fit/FindTray";
 import { DEFAULT_SPEC, type TraySpec } from "./tray/tray";
 import { TrayEditor } from "./tray/TrayEditor";

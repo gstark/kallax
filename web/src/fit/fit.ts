@@ -1,34 +1,22 @@
-// Find the smallest parts tray that holds a set of items. A port of fit.py.
+// Find the smallest parts tray that holds a set of items. A port of fit.py, with a free layout added.
 //
-// The packer tries each tray size and grid, and merges grid units so that each
-// item gets its own compartment. A loose item puts all of its count into one
-// compartment. An item that sits on the floor rides up the floor fillets and the
-// front scoop, so the packer adds that lift to its height. Then the model checks
-// the result.
+// For each tray size, the packer tries two approaches and keeps the better plan:
+// a grid, where merged grid units give each item its own compartment, and a free
+// layout of rectangles (free.ts). A loose item puts all of its count into one
+// compartment. Then the model checks the result.
 
 import {
   HEIGHTS, LENGTHS, WIDTHS, compAt, inspect, key,
-  type FitConstants, type Length, type TrayInfo, type TraySpec, type Width,
+  type Area, type Length, type TrayInfo, type TraySpec, type Width,
 } from "../tray/tray";
+import { freePack } from "./free";
+import { CLEARANCE, FILL, fill, fits, spread, type Item } from "./room";
 
-const TOP_GAP = 0.5;       // between the top of an item and the lid, mm
 const NODE_LIMIT = 4000;   // packer steps for one grid
 const MAX_GRID = 12;       // most grid units in each direction that the packer tries
 export const LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-export const FILL = 0.5;   // loose items: the part of the compartment volume that a pile fills
-export const CLEARANCE = 1;   // extra room for each item in width and in length, mm
 
-export interface Item {
-  name: string;
-  w: number;
-  l: number;
-  h: number;
-  count: number;
-  loose: boolean;   // all of them in one compartment, in a pile
-  off?: boolean;    // the user turned it off: the search leaves it out
-}
-
-/** An item in a compartment: item index, front left unit, and units wide and long. */
+/** An item in a compartment: item index, front left unit, and units wide and long. In a free layout, compartment i is col i, row 0. */
 export interface Place {
   item: number;
   col: number;
@@ -44,6 +32,8 @@ export interface Plan {
   cols: number;
   rows: number;
   places: Place[];
+  layout: Area[];   // a free layout, or empty for a grid
+  spread: number;   // of the fill heights
   volume: number;
 }
 
@@ -51,52 +41,6 @@ export interface Found {
   plan: Plan;
   spec: TraySpec;
   info: TrayInfo;
-}
-
-/** Height of a floor fillet of radius r at this distance from its wall. */
-function rise(gap: number, r: number) {
-  const g = Math.max(gap, 0);
-  return g >= r ? 0 : r - Math.sqrt(r * r - (r - g) ** 2);
-}
-
-/** How far an item w x l sits above the floor in a compartment, or null if it does not fit. */
-function lift(w: number, l: number, roomW: number, roomL: number, depth: number, guided: boolean, k: FitConstants) {
-  const back = guided ? k.guideP : 0;
-  const freeW = roomW - w, freeL = roomL - back - l;
-  if (freeW < 0 || freeL < 0) return null;
-  const rc = Math.min(k.rCell, roomW / 2 - 0.1, roomL / 2 - 0.1);
-  const sr = Math.min(k.scoopR, roomL / 2, depth - k.grooveH);
-  const side = freeW / 2;
-  // The item corner clears the rounded vertical corner
-  const cornerOk = (gap: number) => side >= rc || gap >= rc || (rc - side) ** 2 + (rc - gap) ** 2 <= rc * rc;
-  let best: number | null = null;
-  for (let step = 0; step <= 40; step++) {   // where the item sits between the front and the back
-    const front = (freeL * step) / 40;
-    const rear = freeL - front + back;
-    if (cornerOk(front) && cornerOk(rear)) {
-      const up = Math.max(rise(front, sr), rise(rear, rc), rise(side, rc));
-      best = best === null ? up : Math.min(best, up);
-    }
-  }
-  return best;
-}
-
-/** True if the item fits in either direction. For a loose item, the pile must also fit. */
-export function fits(item: Item, roomW: number, roomL: number, depth: number, guided: boolean, k: FitConstants) {
-  let one = item;
-  if (item.loose) {
-    // Volume under the lid, less the label guides and the front scoop
-    const sr = Math.min(k.scoopR, roomL / 2, depth - k.grooveH);
-    const room = roomW * ((roomL - (guided ? k.guideP : 0)) * (depth - TOP_GAP) - sr * sr * (1 - Math.PI / 4));
-    if (room * FILL < item.count * item.w * item.l * item.h) return false;
-    const [low, mid, high] = [item.w, item.l, item.h].sort((a, b) => a - b);
-    one = { ...item, w: mid, l: high, h: low, count: 1 };   // one item, on its largest face
-  }
-  for (const [w, l] of [[one.w, one.l], [one.l, one.w]]) {
-    const up = lift(w + CLEARANCE, l + CLEARANCE, roomW, roomL, depth, guided, k);
-    if (up !== null && one.h + up + TOP_GAP <= depth) return true;
-  }
-  return false;
 }
 
 /** The compartments of one tray grid. The formulas follow parts-tray.scad. The model checks the result. */
@@ -129,7 +73,7 @@ class Grid {
 }
 
 /** Place each item in its own compartment on the grid. Return the places, or null. */
-function pack(items: Item[], grid: Grid): Place[] | null {
+function pack(items: Item[], grid: Grid, cap = 1): Place[] | null {
   const { cols, rows } = grid;
   const k = grid.info.fit, depth = grid.info.depth;
   const rooms = new Map<string, boolean>();
@@ -148,7 +92,7 @@ function pack(items: Item[], grid: Grid): Place[] | null {
           const room = `${i},${a},${b},${hits}`;
           if (!rooms.has(room)) {
             const guided = k.guideP > 0 && wide >= k.guideW && long >= k.minCell;
-            rooms.set(room, fits(items[i], wide, long, depth, guided, k));
+            rooms.set(room, fits(items[i], wide, long, depth, guided, k, cap));
           }
           if (rooms.get(room)) found.push([a, b]);
         }
@@ -212,30 +156,67 @@ function pack(items: Item[], grid: Grid): Place[] | null {
   return search(0) ? [...places] : null;
 }
 
-/** The best grid for one tray size: fewest merges, then fewest grid units. */
-function bestPlan(info: TrayInfo, length: Length, width: Width, items: Item[], pull: boolean): Plan | null {
-  let best: { score: [number, number]; plan: Plan } | null = null;
+/** How full each compartment is, from the floor to the lid: 0 to 1. */
+function fills(places: Place[], items: Item[], grid: Grid) {
+  return places.map((p) => {
+    const [wide, long] = grid.size(p.col, p.row, p.cols, p.rows);
+    return fill(items[p.item], wide, long, grid.info.depth);
+  });
+}
+
+const CAPS = [0.8, 0.6, 0.4];   // lower pile limits that the packer tries, to give large piles more room
+const NEAR = 0.05;              // plans with a spread this close to the lowest count as equal
+
+/**
+ * The best grid for one tray size. In each grid, large piles take spare units until a lower
+ * pile limit does not pack. Then the grids with the most equal fill heights compete: a low
+ * compartment next to a full one wastes room. Of those, the fewest merges win, then the
+ * widest units, so that fingers can reach into the compartments.
+ */
+function bestGrid(info: TrayInfo, length: Length, width: Width, items: Item[], pull: boolean): Plan | null {
+  const plans: { plan: Plan; merges: number; reach: number }[] = [];
   for (let cols = 1; cols <= MAX_GRID; cols++) {
     for (let rows = 1; rows <= MAX_GRID; rows++) {
       const grid = new Grid(info, cols, rows, pull);
       if (!grid.valid()) continue;
-      const places = pack(items, grid);
+      let places = pack(items, grid);
       if (!places) continue;
-      const score: [number, number] = [places.filter((p) => p.cols * p.rows > 1).length, cols * rows];
-      if (!best || score[0] < best.score[0] || (score[0] === best.score[0] && score[1] < best.score[1])) {
-        best = { score, plan: { length, width, height: info.height, cols, rows, places,
-                                volume: info.width * info.length * info.height } };
+      for (const cap of CAPS) {
+        const lower = pack(items, grid, cap);
+        if (!lower) break;
+        places = lower;
       }
+      plans.push({
+        plan: { length, width, height: info.height, cols, rows, places, layout: [], spread: spread(fills(places, items, grid)),
+                volume: info.width * info.length * info.height },
+        merges: places.filter((p) => p.cols * p.rows > 1).length,
+        reach: Math.min(grid.cw, grid.cd),
+      });
     }
   }
-  return best?.plan ?? null;
+  if (!plans.length) return null;
+  const lowest = Math.min(...plans.map((p) => p.plan.spread));
+  return plans.filter((p) => p.plan.spread <= lowest + NEAR)
+    .sort((a, b) => a.merges - b.merges || b.reach - a.reach)[0].plan;
+}
+
+/** The best plan for one tray size. A grid is tidier, so a free layout must have clearly more even fill heights. */
+function bestPlan(info: TrayInfo, length: Length, width: Width, items: Item[], pull: boolean): Plan | null {
+  const grid = bestGrid(info, length, width, items, pull);
+  const free = freePack(info, items, pull);
+  if (!free || (grid && grid.spread <= free.spread + NEAR)) return grid;
+  return {
+    length, width, height: info.height, cols: 1, rows: 1, layout: free.layout, spread: free.spread,
+    places: free.items.map((item, i) => ({ item, col: i, row: 0, cols: 1, rows: 1 })),
+    volume: info.width * info.length * info.height,
+  };
 }
 
 function specFor(plan: Plan, pull: boolean, guides: boolean): TraySpec {
   return {
     length: plan.length, width: plan.width, height: plan.height, cols: plan.cols, rows: plan.rows,
     merges: plan.places.filter((p) => p.cols * p.rows > 1).map(({ col, row, cols, rows }) => ({ col, row, cols, rows })),
-    pull, guides, labels: {}, title: "", name: "",
+    layout: plan.layout, pull, guides, labels: {}, title: "", name: "",
   };
 }
 
@@ -268,7 +249,7 @@ function base(length: Length, width: Width, height: number, pull: boolean, guide
   const id = `${length},${width},${height},${pull},${guides}`;
   let info = bases.get(id);
   if (!info) {
-    info = inspect({ length, width, height, cols: 1, rows: 1, merges: [], pull, guides, labels: {}, title: "", name: "" });
+    info = inspect({ length, width, height, cols: 1, rows: 1, merges: [], layout: [], pull, guides, labels: {}, title: "", name: "" });
     info.catch(() => bases.delete(id));
     bases.set(id, info);
   }
@@ -308,7 +289,7 @@ export async function find(items: Item[], { pull = true, guides = true, heights 
   return found;
 }
 
-/** True if some grid of the tray holds the items. It stops at the first grid that packs. */
+/** True if some grid or free layout of the tray holds the items. It stops at the first one that packs. */
 function holds(info: TrayInfo, items: Item[], pull: boolean) {
   for (let cols = 1; cols <= MAX_GRID; cols++) {
     for (let rows = 1; rows <= MAX_GRID; rows++) {
@@ -316,7 +297,7 @@ function holds(info: TrayInfo, items: Item[], pull: boolean) {
       if (grid.valid() && pack(items, grid)) return true;
     }
   }
-  return false;
+  return freePack(info, items, pull, true) !== null;
 }
 
 /** About how much floor an item needs, mm². It sets the order in which the best fit tries the items. */

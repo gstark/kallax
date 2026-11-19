@@ -75,6 +75,8 @@ class Comp:
     length: float   # mm, along the tray
     usable: bool    # False: too short behind the finger pocket, stays solid
     guided: bool    # has label guides
+    x0: float       # mm, left side, from the tray center
+    y0: float       # mm, front side, from the tray center
 
 
 @dataclass

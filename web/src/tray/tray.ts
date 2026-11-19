@@ -16,6 +16,9 @@ const SPACING = 6;   // between the body and the lid on the plate
 export type Length = (typeof LENGTHS)[number];
 export type Width = (typeof WIDTHS)[number];
 
+/** A free layout compartment: x, y, width, length, mm from the front left corner of the inner floor. */
+export type Area = [number, number, number, number];
+
 /** A rectangle of grid units. Row 0 is the front. */
 export interface Block {
   col: number;
@@ -31,6 +34,7 @@ export interface TraySpec {
   cols: number;
   rows: number;
   merges: Block[];
+  layout: Area[];   // a free layout in place of the grid. Compartment i has the label key "i,0".
   pull: boolean;
   guides: boolean;
   labels: Record<string, string>;   // "col,row" of a compartment's front left unit -> text
@@ -43,6 +47,8 @@ export interface Comp extends Block {
   length: number;    // mm, along the tray
   usable: boolean;   // false: too short behind the finger pocket, stays solid
   guided: boolean;   // has label guides
+  x0: number;        // mm, left side, from the tray center
+  y0: number;        // mm, front side, from the tray center
 }
 
 export interface TrayInfo {
@@ -77,17 +83,20 @@ export interface FitConstants {
 }
 
 export const DEFAULT_SPEC: TraySpec = {
-  length: "half", width: "full", height: 24, cols: 3, rows: 4, merges: [], pull: true, guides: true,
+  length: "half", width: "full", height: 24, cols: 3, rows: 4, merges: [], layout: [], pull: true, guides: true,
   labels: {}, title: "", name: "",
 };
 
 export const key = (col: number, row: number) => `${col},${row}`;
 
+/** True if the tray has a free layout, not a grid. */
+export const isFree = (spec: TraySpec) => spec.layout.length > 0;
+
 export function autoName(spec: TraySpec): string {
   let hash = 0;
-  for (const ch of JSON.stringify(spec.merges)) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return `tray-${spec.length}-${spec.width}-${spec.height}mm-${spec.cols}x${spec.rows}` +
-         `${spec.merges.length ? `-${hash.toString(16).slice(0, 4)}` : ""}` +
+  for (const ch of JSON.stringify(isFree(spec) ? spec.layout : spec.merges)) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return `tray-${spec.length}-${spec.width}-${spec.height}mm-${isFree(spec) ? "free" : `${spec.cols}x${spec.rows}`}` +
+         `${spec.merges.length || isFree(spec) ? `-${hash.toString(16).slice(0, 4)}` : ""}` +
          `${spec.pull ? "" : "-nopull"}${spec.guides ? "" : "-noguides"}`;
 }
 
@@ -96,7 +105,7 @@ function defines(spec: TraySpec, part: string): Record<string, string> {
   return {
     length: JSON.stringify(spec.length), width: JSON.stringify(spec.width), height: String(spec.height),
     cols: String(spec.cols), rows: String(spec.rows),
-    merges: JSON.stringify(spec.merges.map((m) => [m.col, m.row, m.cols, m.rows])),
+    merges: JSON.stringify(spec.merges.map((m) => [m.col, m.row, m.cols, m.rows])), layout: JSON.stringify(spec.layout),
     pull: String(spec.pull), label_guides: String(spec.guides), lid_labels: JSON.stringify(lidLabels),
     lid_title: JSON.stringify(spec.title), part: JSON.stringify(part),
   };
@@ -111,8 +120,8 @@ export async function inspect(spec: TraySpec): Promise<TrayInfo> {
   const notes = [...text.matchAll(/^ECHO: "(.*)"$/gm)].map((m) => m[1]);
   return {
     width: data[0], length: data[1], height: data[2], depth: data[3], pocket: data[4], unitW: data[5], unitL: data[6],
-    comps: data[7].map((c: [number, number, number, number, number, number, boolean, boolean]) => ({
-      col: c[0], row: c[1], cols: c[2], rows: c[3], width: c[4], length: c[5], usable: c[6], guided: c[7],
+    comps: data[7].map((c: [number, number, number, number, number, number, boolean, boolean, number, number]) => ({
+      col: c[0], row: c[1], cols: c[2], rows: c[3], width: c[4], length: c[5], usable: c[6], guided: c[7], x0: c[8], y0: c[9],
     })),
     notes, wall: fit[0], divider: fit[1], pocketDepth: fit[10],
     fit: { wall: fit[0], divT: fit[1], minCell: fit[2], cut: fit[3], pullW0: fit[4], rCell: fit[5], scoopR: fit[6],
@@ -147,7 +156,8 @@ export function tidyLabels(spec: TraySpec, info: TrayInfo): TraySpec {
 /** The slide-in label texts to print, in reading order on the top view: back row first. */
 function guidedLabels(spec: TraySpec, info: TrayInfo): string[] {
   return info.comps.filter((k) => k.guided && spec.labels[key(k.col, k.row)])
-    .sort((a, b) => b.row - a.row || a.col - b.col).map((k) => spec.labels[key(k.col, k.row)]);
+    .sort((a, b) => (isFree(spec) ? b.y0 - a.y0 || a.x0 - b.x0 : b.row - a.row || a.col - b.col))
+    .map((k) => spec.labels[key(k.col, k.row)]);
 }
 
 export type Progress = (step: { part: string; done: boolean; seconds?: number }) => void;

@@ -8,11 +8,12 @@ import type { Build } from "../build";
 import type { Block } from "../preview/PlateView";
 import { PreviewPane, usePreview, ViewSwitch, type View } from "../preview/Preview";
 import { BED } from "../printer";
-import { HEIGHTS, buildTray, compAt, type TraySpec } from "../tray/tray";
+import { HEIGHTS, buildTray, compAt, isFree, type TraySpec } from "../tray/tray";
 import { TrayCanvas, type Mark } from "../tray/TrayCanvas";
 import { Button, Section, inputClass } from "../ui";
 import { Workbench } from "../Workbench";
-import { FILL, LETTERS, bestFit, type Fit, type Found, type Item } from "./fit";
+import { LETTERS, bestFit, type Fit, type Found } from "./fit";
+import { REACH, needsReach, pileHeight, type Item } from "./room";
 import { ItemsMat } from "./ItemsMat";
 
 type Step = "list" | "name" | "size" | "count" | "loose";
@@ -27,24 +28,28 @@ interface Draft {
 
 const EMPTY: Draft = { name: "", w: "", l: "", h: "", count: "1" };
 
-function toItem(d: Draft, loose = false): Item | null {
+function toItem(d: Draft, loose = false, reach?: boolean): Item | null {
   const [w, l, h] = [d.w, d.l, d.h].map(Number.parseFloat);
   const count = Number.parseInt(d.count, 10) || 1;
-  return w > 0 && l > 0 && h > 0 ? { name: d.name.trim(), w, l, h, count, loose } : null;
+  // Keep the finger room only where it is not the default for the item
+  const own = reach === undefined || reach === loose ? {} : { reach };
+  return w > 0 && l > 0 && h > 0 ? { name: d.name.trim(), w, l, h, count, loose, ...own } : null;
 }
 
 const toDraft = (it: Item): Draft => ({ name: it.name, w: String(it.w), l: String(it.l), h: String(it.h), count: String(it.count) });
 
 function describe(item: Item) {
-  return `${item.w} × ${item.l} × ${item.h} mm${item.loose ? `, ${item.count} loose in one compartment` : item.count > 1 ? `, ${item.count} of them` : ""}`;
+  const room = needsReach(item) === item.loose ? "" : needsReach(item) ? ", room for fingers" : ", no room for fingers";
+  return `${item.w} × ${item.l} × ${item.h} mm${item.loose ? `, ${item.count} loose in one compartment` : item.count > 1 ? `, ${item.count} of them` : ""}${room}`;
 }
 
 function title(f: Found) {
   const merges = f.spec.merges.length;
+  const kind = isFree(f.spec) ? `A free layout of ${f.spec.layout.length} compartments`
+    : `A ${f.plan.cols} × ${f.plan.rows} grid${merges ? ` with ${merges} ${merges === 1 ? "merge" : "merges"}` : ""}`;
   return {
     size: `${f.info.width} × ${f.info.length} × ${f.info.height} mm`,
-    detail: `${f.plan.length[0].toUpperCase()}${f.plan.length.slice(1)} length, ${f.plan.width} width. A ${f.plan.cols} × ${f.plan.rows} grid` +
-            `${merges ? ` with ${merges} ${merges === 1 ? "merge" : "merges"}` : ""}.`,
+    detail: `${f.plan.length[0].toUpperCase()}${f.plan.length.slice(1)} length, ${f.plan.width} width. ${kind}.`,
   };
 }
 
@@ -63,13 +68,11 @@ function itemBlocks(found: Found, items: Item[], build: Build): Block[] {
     const comp = compAt(info, p.col, p.row);
     if (!comp) return [];
     const item = items[p.item];
-    // The compartment, in tray coordinates. The back wall sets its position, as in parts-tray.scad.
-    const x0 = -info.width / 2 + info.wall + comp.col * (info.unitW + info.divider);
-    const back = -info.length / 2 + info.wall + (comp.row + comp.rows) * (info.unitL + info.divider) - info.divider;
-    const cx = tx + x0 + comp.width / 2, cy = ty + back - comp.length / 2;
+    // The middle of the compartment, in tray coordinates
+    const cx = tx + comp.x0 + comp.width / 2, cy = ty + comp.y0 + comp.length / 2;
     if (item.loose) {
       const w = comp.width - 3, l = comp.length - 3;
-      const h = Math.min(info.depth - 0.5, (item.count * item.w * item.l * item.h) / FILL / (w * l));
+      const h = Math.min(info.depth - 0.5, pileHeight(item, comp.width, comp.length));
       return [{ center: [cx, cy, floor + h / 2], size: [w, l, h] }];
     }
     const along = (item.l >= item.w) === (comp.length >= comp.width);
@@ -122,12 +125,13 @@ function ItemForm({ item, onSave, onCancel, onChange }: {
 }) {
   const [draft, setDraft] = useState<Draft>(() => toDraft(item));
   const [loose, setLoose] = useState(item.loose);
+  const [reach, setReach] = useState(needsReach(item));
   const count = Number.parseInt(draft.count, 10);
-  const edited = count >= 1 ? toItem(draft, loose && count > 1) : null;
+  const edited = count >= 1 ? toItem(draft, loose && count > 1, reach) : null;
   const set = (change: Partial<Draft>) => {
     const next = { ...draft, ...change };
     setDraft(next);
-    onChange(toItem(next, loose && Number.parseInt(next.count, 10) > 1));
+    onChange(toItem(next, loose && Number.parseInt(next.count, 10) > 1, reach));
   };
   const save = () => edited && onSave({ ...edited, off: item.off });
   const keys = (e: KeyboardEvent) => {
@@ -161,10 +165,24 @@ function ItemForm({ item, onSave, onCancel, onChange }: {
       {count > 1 && (
         <label className="flex items-center gap-2 text-[0.9375rem]">
           <input type="checkbox" checked={loose} className="h-4 w-4 accent-ink"
-                 onChange={(e) => { setLoose(e.target.checked); onChange(toItem(draft, e.target.checked)); }} />
+                 onChange={(e) => {
+                   // Finger room follows the default for loose items, unless the user set it
+                   const room = reach === loose ? e.target.checked : reach;
+                   setLoose(e.target.checked);
+                   setReach(room);
+                   onChange(toItem(draft, e.target.checked, room));
+                 }} />
           All loose in one compartment
         </label>
       )}
+      <label className="flex items-start gap-2 text-[0.9375rem]">
+        <input type="checkbox" checked={reach} className="mt-0.5 h-4 w-4 shrink-0 accent-ink"
+               onChange={(e) => { setReach(e.target.checked); onChange(toItem(draft, loose && count > 1, e.target.checked)); }} />
+        <span>
+          Room for fingers
+          <span className="block text-[0.8125rem] text-muted">No compartment side shorter than {REACH} mm. On for loose items.</span>
+        </span>
+      </label>
       <div className="flex gap-2">
         <Button primary onClick={save} disabled={!edited}>Save</Button>
         <Button onClick={onCancel}>Cancel</Button>

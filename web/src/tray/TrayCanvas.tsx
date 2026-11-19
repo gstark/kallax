@@ -4,7 +4,7 @@
 
 import { useRef, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { Mat } from "../mat";
-import { key, type Block, type Comp, type TrayInfo, type TraySpec } from "./tray";
+import { compAt, isFree, key, type Block, type Comp, type TrayInfo, type TraySpec } from "./tray";
 
 export type Unit = [number, number];   // col, row
 
@@ -35,22 +35,21 @@ const MARGIN = 26;        // room on the mat for the dimension lines
 const OUTLINE_R = 3.5;    // r_vert in box-params.scad
 const FLOOR_R = 4;        // r_cell in parts-tray.scad
 
-/** The rectangle of a compartment, in SVG coordinates. Follows comp_y0 and comp_yb in parts-tray.scad. */
-function compRect(info: TrayInfo, rows: number, c: Block & { width: number; length: number }) {
-  const x = -info.width / 2 + info.wall + c.col * (info.unitW + info.divider);
-  const front = -info.length / 2 + info.wall + c.row * (info.unitL + info.divider);
-  const back = front + c.rows * (info.unitL + info.divider) - info.divider;
-  // The model shortens a compartment behind a pocket. Take the cut from the back end
-  // when the compartment is at the back, and from the front end otherwise.
-  const cut = back - front - c.length;
-  const atFront = c.row === 0, atBack = c.row + c.rows === rows;
-  const fromBack = atBack ? (atFront ? cut / 2 : cut) : 0;
-  return { x, y: -(back - fromBack), w: c.width, h: c.length };
-}
+type Box = { x: number; y: number; w: number; h: number };
 
-function unitRect(info: TrayInfo, rows: number, b: Block) {
-  return compRect(info, rows, { ...b, width: b.cols * info.unitW + (b.cols - 1) * info.divider,
-                                length: b.rows * info.unitL + (b.rows - 1) * info.divider });
+/** The rectangle of a compartment, in SVG coordinates, from its position in the model. */
+const compRect = (c: Comp): Box => ({ x: c.x0, y: -(c.y0 + c.length), w: c.width, h: c.length });
+
+/** The rectangle of grid units, in SVG coordinates. In a free layout, the rectangle of the compartment. */
+function blockRect(spec: TraySpec, info: TrayInfo, b: Block): Box {
+  const comp = compAt(info, b.col, b.row);
+  if (isFree(spec) || (comp && comp.col === b.col && comp.row === b.row && comp.cols === b.cols && comp.rows === b.rows)) {
+    return comp ? compRect(comp) : { x: 0, y: 0, w: 0, h: 0 };
+  }
+  const x = -info.width / 2 + info.wall + b.col * (info.unitW + info.divider);
+  const front = -info.length / 2 + info.wall + b.row * (info.unitL + info.divider);
+  return { x, y: -(front + b.rows * (info.unitL + info.divider) - info.divider),
+           w: b.cols * info.unitW + (b.cols - 1) * info.divider, h: b.rows * info.unitL + (b.rows - 1) * info.divider };
 }
 
 /** The tray outline with a finger pocket cut into the front and into the back. */
@@ -100,7 +99,7 @@ function Dimension({ from, to, at, vertical, text }: { from: number; to: number;
   );
 }
 
-function CompLabel({ comp, rect, label, selected }: { comp: Comp; rect: { x: number; y: number; w: number; h: number }; label?: string; selected: boolean }) {
+function CompLabel({ comp, rect, label, selected }: { comp: Comp; rect: Box; label?: string; selected: boolean }) {
   const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
   const size = Math.max(2.4, Math.min(5, rect.w / 5.5, rect.h / 4));
   const small = Math.max(1.8, Math.min(3, rect.w / 9));
@@ -124,7 +123,7 @@ function CompLabel({ comp, rect, label, selected }: { comp: Comp; rect: { x: num
  * An item outline, centred in its compartment, turned to fit the compartment the long way.
  * Loose items fill the compartment as a pile.
  */
-function ItemMark({ mark, rect }: { mark: Mark; rect: { x: number; y: number; w: number; h: number } }) {
+function ItemMark({ mark, rect }: { mark: Mark; rect: Box }) {
   if (mark.note) {
     const size = Math.max(4, Math.min(12, rect.w / 3, rect.h / 4));
     const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
@@ -171,6 +170,11 @@ export function TrayCanvas({ spec, info, cursor = [0, 0], selection, selecting =
     const matrix = svg.current?.getScreenCTM();
     if (!matrix) return null;
     const p = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    if (isFree(spec)) {
+      // The compartment under the pointer
+      const comp = info.comps.find((c) => { const r = compRect(c); return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h; });
+      return comp ? [comp.col, comp.row] : null;
+    }
     const col = Math.floor((p.x + W / 2 - info.wall) / (info.unitW + info.divider));
     const row = Math.floor((-p.y + D / 2 - info.wall) / (info.unitL + info.divider));
     if (p.x < -W / 2 || p.x > W / 2 || p.y < -D / 2 || p.y > D / 2) return null;
@@ -178,8 +182,8 @@ export function TrayCanvas({ spec, info, cursor = [0, 0], selection, selecting =
   };
 
   const interactive = Boolean(onPick);
-  const sel = selection ? unitRect(info, spec.rows, selection) : null;
-  const cur = unitRect(info, spec.rows, { col: cursor[0], row: cursor[1], cols: 1, rows: 1 });
+  const sel = selection ? blockRect(spec, info, selection) : null;
+  const cur = blockRect(spec, info, { col: cursor[0], row: cursor[1], cols: 1, rows: 1 });
   const inSelection = (c: Comp) => Boolean(selection) && interactive &&
     c.col >= selection!.col && c.col + c.cols <= selection!.col + selection!.cols &&
     c.row >= selection!.row && c.row + c.rows <= selection!.row + selection!.rows;
@@ -194,7 +198,8 @@ export function TrayCanvas({ spec, info, cursor = [0, 0], selection, selecting =
       tabIndex={interactive ? 0 : undefined}
       role={interactive ? "application" : "img"}
       aria-label={interactive
-        ? "Tray compartments, seen from the top. Arrow keys move. Shift and an arrow key select units. M merges, S splits, Enter edits the label."
+        ? isFree(spec) ? "Tray compartments in a free layout, seen from the top. Arrow keys move. Enter edits the label."
+          : "Tray compartments, seen from the top. Arrow keys move. Shift and an arrow key select units. M merges, S splits, Enter edits the label."
         : label}
       onKeyDown={onKey}
       onPointerDown={(e) => {
@@ -234,7 +239,7 @@ export function TrayCanvas({ spec, info, cursor = [0, 0], selection, selecting =
       <g opacity={stale ? 0.55 : 1} style={{ transition: "opacity 160ms" }}>
         <path d={outline(info)} className="fill-pla" filter="url(#lift)" />
         {info.comps.map((c) => {
-          const r = compRect(info, spec.rows, c);
+          const r = compRect(c);
           const round = Math.min(FLOOR_R, r.w / 2 - 0.1, r.h / 2 - 0.1);
           const chosen = inSelection(c) && !stale;
           return (
@@ -250,7 +255,7 @@ export function TrayCanvas({ spec, info, cursor = [0, 0], selection, selecting =
             </g>
           );
         })}
-        {marks?.map((m, i) => <ItemMark key={i} mark={m} rect={unitRect(info, spec.rows, m.block)} />)}
+        {marks?.map((m, i) => <ItemMark key={i} mark={m} rect={blockRect(spec, info, m.block)} />)}
         {!stale && sel && interactive && (
           <>
             <rect x={sel.x - 0.6} y={sel.y - 0.6} width={sel.w + 1.2} height={sel.h + 1.2} rx={FLOOR_R}

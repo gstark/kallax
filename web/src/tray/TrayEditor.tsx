@@ -11,7 +11,7 @@ import { Button, Choice, Field, Section, Stepper, Toggle, inputClass } from "../
 import { Workbench } from "../Workbench";
 import { TrayCanvas, type Unit } from "./TrayCanvas";
 import {
-  COLS, DEFAULT_SPEC, HEIGHTS, ROWS, autoName, buildTray, compAt, inspect, key, merge, split, tidyLabels,
+  COLS, DEFAULT_SPEC, HEIGHTS, ROWS, autoName, buildTray, compAt, inspect, isFree, key, merge, split, tidyLabels,
   type Block, type Length, type TrayInfo, type TraySpec, type Width,
 } from "./tray";
 
@@ -22,10 +22,10 @@ type Make =
   | { state: "failed"; message: string };
 
 /** The fields that change the geometry. Labels, the title, and the name do not need a new query. */
-const shape = (s: TraySpec) => JSON.stringify([s.length, s.width, s.height, s.cols, s.rows, s.merges, s.pull, s.guides]);
+const shape = (s: TraySpec) => JSON.stringify([s.length, s.width, s.height, s.cols, s.rows, s.merges, s.layout, s.pull, s.guides]);
 
 function describeTray(s: TraySpec) {
-  return `${s.title || "No title"}, ${s.length} × ${s.width}, ${s.height} mm, ${s.cols} × ${s.rows} grid`;
+  return `${s.title || "No title"}, ${s.length} × ${s.width}, ${s.height} mm, ${isFree(s) ? "free layout" : `${s.cols} × ${s.rows} grid`}`;
 }
 
 export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatch<SetStateAction<TraySpec>> }) {
@@ -70,12 +70,13 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
       })();
   const here = info && !stale ? compAt(info, cursor[0], cursor[1]) : undefined;
   const merged = here ? spec.merges.some((m) => m.col === here.col && m.row === here.row && m.cols === here.cols && m.rows === here.rows) : false;
-  const canMerge = !stale && selection.cols * selection.rows > 1 && Boolean(anchor);
+  const free = isFree(spec);
+  const canMerge = !free && !stale && selection.cols * selection.rows > 1 && Boolean(anchor);
 
   const update = (change: Partial<TraySpec>) => setSpec((s) => ({ ...s, ...change }));
   const regrid = (change: Partial<TraySpec>) => {
     // A new grid starts with single units
-    setSpec((s) => ({ ...s, ...change, merges: [], labels: {} }));
+    setSpec((s) => ({ ...s, ...change, merges: [], layout: [], labels: {} }));
     setCursor([0, 0]);
     setAnchor(null);
   };
@@ -90,6 +91,20 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
   };
 
   const move = (dc: number, dr: number, extend: boolean) => {
+    if (free) {
+      // Go to the nearest compartment in this direction
+      const start = info && compAt(info, ...cursor);
+      if (!info || !start) return;
+      const mid = (c: typeof start) => [c.x0 + c.width / 2, c.y0 + c.length / 2];
+      const [x, y] = mid(start);
+      const next = info.comps.filter((c) => c.usable).map((c) => {
+        const [cx, cy] = mid(c);
+        const along = (cx - x) * dc + (cy - y) * dr, across = Math.abs((cx - x) * dr) + Math.abs((cy - y) * dc);
+        return { c, along, distance: along + 2 * across };
+      }).filter((n) => n.along > 1).sort((a, b) => a.distance - b.distance)[0];
+      if (next) setCursor([next.c.col, next.c.row]);
+      return;
+    }
     const clamp = (u: Unit): Unit => [Math.min(Math.max(u[0], 0), spec.cols - 1), Math.min(Math.max(u[1], 0), spec.rows - 1)];
     if (extend) {
       setAnchor((a) => a ?? cursor);
@@ -127,7 +142,7 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
   };
 
   const onPick = (unit: Unit, extend: boolean) => {
-    if (extend) setAnchor((a) => a ?? cursor);
+    if (extend && !free) setAnchor((a) => a ?? cursor);
     else setAnchor(null);
     setCursor(unit);
   };
@@ -176,7 +191,7 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
         )}
         {error && info && (
           <p role="alert" className="absolute inset-x-4 top-4 rounded-md bg-sheet px-4 py-3 text-[0.9375rem] shadow-lg lg:inset-x-auto lg:left-6 lg:max-w-md">
-            <span className="font-semibold text-fault">The model rejects this tray.</span> {error}. Change the grid or the size.
+            <span className="font-semibold text-fault">The model rejects this tray.</span> {error}. Change the {free ? "layout" : "grid"} or the size.
           </p>
         )}
       </>} panel={<>
@@ -201,9 +216,20 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
           )}</Field>
         </Section>
 
-        <Section title="Grid" aside={info && !stale ? `${info.unitW.toFixed(1)} × ${info.unitL.toFixed(1)} mm units` : undefined}>
-          <Stepper label="Across" value={spec.cols} min={1} max={10} onChange={(cols) => regrid({ cols })} />
-          <Stepper label="Along" value={spec.rows} min={1} max={26} onChange={(rows) => regrid({ rows })} />
+        <Section title={free ? "Layout" : "Grid"} aside={info && !stale && !free ? `${info.unitW.toFixed(1)} × ${info.unitL.toFixed(1)} mm units` : undefined}>
+          {free ? (
+            <>
+              <p className="text-[0.9375rem] leading-snug text-muted">
+                A free layout from Find a tray. You can change the labels, the height, and the options, but not the compartments.
+              </p>
+              <Button onClick={() => regrid({ cols: COLS[spec.width], rows: ROWS[spec.length] })}>Change to a grid</Button>
+            </>
+          ) : (
+            <>
+              <Stepper label="Across" value={spec.cols} min={1} max={10} onChange={(cols) => regrid({ cols })} />
+              <Stepper label="Along" value={spec.rows} min={1} max={26} onChange={(rows) => regrid({ rows })} />
+            </>
+          )}
           <Toggle label="Finger pockets" note="A notch in each end to lift the tray out." checked={spec.pull}
                   onChange={(pull) => update({ pull })} />
           <Toggle label="Label guides" note="Rails on the back wall that hold a printed label." checked={spec.guides}
@@ -231,11 +257,15 @@ export function TrayEditor({ spec, setSpec }: { spec: TraySpec; setSpec: Dispatc
               )}
             </Field>
           )}
-          <div className="flex gap-2">
-            <Button onClick={doMerge} disabled={!canMerge} title="Shortcut: M">Merge selection</Button>
-            <Button onClick={doSplit} disabled={!merged} title="Shortcut: S">Split</Button>
-          </div>
-          <p className="text-[0.8125rem] leading-snug text-muted">Drag across units, or hold Shift and press the arrow keys, to select more than one.</p>
+          {!free && (
+            <>
+              <div className="flex gap-2">
+                <Button onClick={doMerge} disabled={!canMerge} title="Shortcut: M">Merge selection</Button>
+                <Button onClick={doSplit} disabled={!merged} title="Shortcut: S">Split</Button>
+              </div>
+              <p className="text-[0.8125rem] leading-snug text-muted">Drag across units, or hold Shift and press the arrow keys, to select more than one.</p>
+            </>
+          )}
         </Section>
 
         <Section title="Lid">
