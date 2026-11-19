@@ -18,12 +18,12 @@ export interface Item {
   h: number;
   count: number;
   loose: boolean;   // all of them in one compartment, in a pile
-  reach?: boolean;  // no compartment side shorter than REACH. Without a value, loose items get it.
+  reach?: boolean;  // no compartment side shorter than REACH. Without a value, it is on.
   off?: boolean;    // the user turned it off: the search leaves it out
 }
 
 /** True if the compartments of this item need room for fingers. */
-export const needsReach = (item: Item) => item.reach ?? item.loose;
+export const needsReach = (item: Item) => item.reach ?? true;
 
 /** Height of a floor fillet of radius r at this distance from its wall. */
 function rise(gap: number, r: number) {

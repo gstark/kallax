@@ -28,18 +28,18 @@ interface Draft {
 
 const EMPTY: Draft = { name: "", w: "", l: "", h: "", count: "1" };
 
-function toItem(d: Draft, loose = false, reach?: boolean): Item | null {
+function toItem(d: Draft, loose = false, reach = true): Item | null {
   const [w, l, h] = [d.w, d.l, d.h].map(Number.parseFloat);
   const count = Number.parseInt(d.count, 10) || 1;
-  // Keep the finger room only where it is not the default for the item
-  const own = reach === undefined || reach === loose ? {} : { reach };
+  // Store the finger room only when it is off, because on is the default
+  const own = reach ? {} : { reach };
   return w > 0 && l > 0 && h > 0 ? { name: d.name.trim(), w, l, h, count, loose, ...own } : null;
 }
 
 const toDraft = (it: Item): Draft => ({ name: it.name, w: String(it.w), l: String(it.l), h: String(it.h), count: String(it.count) });
 
 function describe(item: Item) {
-  const room = needsReach(item) === item.loose ? "" : needsReach(item) ? ", room for fingers" : ", no room for fingers";
+  const room = needsReach(item) ? "" : ", no room for fingers";
   return `${item.w} × ${item.l} × ${item.h} mm${item.loose ? `, ${item.count} loose in one compartment` : item.count > 1 ? `, ${item.count} of them` : ""}${room}`;
 }
 
@@ -165,13 +165,7 @@ function ItemForm({ item, onSave, onCancel, onChange }: {
       {count > 1 && (
         <label className="flex items-center gap-2 text-[0.9375rem]">
           <input type="checkbox" checked={loose} className="h-4 w-4 accent-ink"
-                 onChange={(e) => {
-                   // Finger room follows the default for loose items, unless the user set it
-                   const room = reach === loose ? e.target.checked : reach;
-                   setLoose(e.target.checked);
-                   setReach(room);
-                   onChange(toItem(draft, e.target.checked, room));
-                 }} />
+                 onChange={(e) => { setLoose(e.target.checked); onChange(toItem(draft, e.target.checked, reach)); }} />
           All loose in one compartment
         </label>
       )}
@@ -180,7 +174,7 @@ function ItemForm({ item, onSave, onCancel, onChange }: {
                onChange={(e) => { setReach(e.target.checked); onChange(toItem(draft, loose && count > 1, e.target.checked)); }} />
         <span>
           Room for fingers
-          <span className="block text-[0.8125rem] text-muted">No compartment side shorter than {REACH} mm. On for loose items.</span>
+          <span className="block text-[0.8125rem] text-muted">No compartment side shorter than {REACH} mm.</span>
         </span>
       </label>
       <div className="flex gap-2">
